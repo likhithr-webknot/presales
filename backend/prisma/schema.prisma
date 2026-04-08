@@ -278,8 +278,8 @@ enum AuditAction {
 
 model AuditLog {
   id           String      @id @default(uuid())
-  engagementId String
-  engagement   Engagement  @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  engagementId String?     // nullable for system-level admin actions
+  engagement   Engagement? @relation(fields: [engagementId], references: [id], onDelete: Cascade)
   userId       String?
   user         User?       @relation(fields: [userId], references: [id])
   action       AuditAction

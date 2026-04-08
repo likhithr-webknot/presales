@@ -17,6 +17,7 @@ import { artifactRouter } from './routes/artifact.routes'
 import { sowRouter } from './routes/sow.routes'
 import { auditRouter, globalAuditRouter } from './routes/audit.routes'
 import { statusRouter } from './routes/status.routes'
+import { adminRouter } from './routes/admin.routes'
 import { errorMiddleware } from './middleware/error.middleware'
 
 export function createApp() {
@@ -52,6 +53,7 @@ export function createApp() {
   app.use('/api/engagements/:id/audit', auditRouter)
   app.use('/api/engagements/:id/status', statusRouter)
   app.use('/api/audit', globalAuditRouter)
+  app.use('/api/admin', adminRouter)
 
   // Global error handler — must be last
   app.use(errorMiddleware)

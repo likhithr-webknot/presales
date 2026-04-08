@@ -208,6 +208,85 @@ export const artifactsApi = {
     api.get<EngagementVersion[]>(`/api/engagements/${engagementId}/versions`).then(r => r.data),
 }
 
+// ── Admin ────────────────────────────────────────────────────────────────────
+
+export type KBEntryType = 'PROJECT' | 'CAPABILITY' | 'CASE_STUDY' | 'TEAM_PROFILE' | 'DIFFERENTIATOR' | 'WEDGE_OFFERING' | 'MARKETING_ASSET'
+
+export interface KBEntry {
+  id: string
+  type: KBEntryType
+  title: string
+  content: string
+  metadata: Record<string, unknown>
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SystemConfigItem {
+  id: string
+  key: string
+  value: string
+  updatedAt: string
+}
+
+export interface AdminUser {
+  id: string
+  email: string
+  name: string
+  avatarUrl?: string
+  roles: RoleType[]
+  createdAt: string
+}
+
+export const adminApi = {
+  // Users
+  listUsers: () =>
+    api.get<AdminUser[]>('/api/admin/users').then(r => r.data),
+  assignRole: (userId: string, role: RoleType) =>
+    api.post(`/api/admin/users/${userId}/roles`, { role }).then(r => r.data),
+  revokeRole: (userId: string, role: RoleType) =>
+    api.delete(`/api/admin/users/${userId}/roles/${role}`).then(r => r.data),
+
+  // Knowledge Base
+  listKB: (params?: { page?: number; type?: KBEntryType; search?: string; active?: boolean }) =>
+    api.get<{ data: KBEntry[]; pagination: { total: number; totalPages: number; page: number } }>(
+      '/api/admin/kb',
+      { params: { ...params, active: params?.active?.toString() } }
+    ).then(r => r.data),
+  createKB: (body: { type: KBEntryType; title: string; content: string; metadata?: Record<string, unknown> }) =>
+    api.post<KBEntry>('/api/admin/kb', body).then(r => r.data),
+  updateKB: (id: string, body: Partial<{ title: string; content: string; metadata: Record<string, unknown>; isActive: boolean }>) =>
+    api.patch<KBEntry>(`/api/admin/kb/${id}`, body).then(r => r.data),
+  deleteKB: (id: string) =>
+    api.delete(`/api/admin/kb/${id}`).then(r => r.data),
+
+  // System Config
+  listConfig: () =>
+    api.get<SystemConfigItem[]>('/api/admin/config').then(r => r.data),
+  updateConfig: (key: string, value: string) =>
+    api.patch<SystemConfigItem>(`/api/admin/config/${key}`, { value }).then(r => r.data),
+
+  // Email test
+  testEmail: () =>
+    api.post<{ message: string }>('/api/admin/email/test').then(r => r.data),
+
+  // SOW Templates
+  listTemplates: () =>
+    api.get<{ key: string; name: string; storageKey: string; isDefault: boolean; uploadedAt: string }[]>(
+      '/api/admin/sow-templates'
+    ).then(r => r.data),
+  uploadTemplate: (file: File, name: string, isDefault: boolean) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('name', name)
+    fd.append('isDefault', String(isDefault))
+    return api.post('/api/admin/sow-templates', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data)
+  },
+  setDefaultTemplate: (key: string) =>
+    api.patch(`/api/admin/sow-templates/${key}/default`).then(r => r.data),
+}
+
 // ── Audit ─────────────────────────────────────────────────────────────────────
 
 export const auditApi = {

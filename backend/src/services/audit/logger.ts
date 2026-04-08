@@ -2,7 +2,7 @@ import { AuditAction, Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 
 interface AuditLogParams {
-  engagementId: string
+  engagementId?: string   // optional for system-level admin actions
   userId?: string
   action: AuditAction
   detail?: Record<string, unknown>
