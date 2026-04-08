@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
@@ -208,14 +208,21 @@ function UsersTab({ queryClient }: { queryClient: ReturnType<typeof useQueryClie
 // ── Knowledge Base Tab ────────────────────────────────────────────────────────
 
 function KBTab({ queryClient }: { queryClient: ReturnType<typeof useQueryClient> }) {
-  const [search, setSearch]   = useState('')
-  const [typeFilter, setType] = useState<KBEntryType | ''>('')
-  const [showNew, setShowNew] = useState(false)
-  const [form, setForm]       = useState({ type: '' as KBEntryType, title: '', content: '' })
+  const [search, setSearch]       = useState('')
+  const [debouncedSearch, setDeb] = useState('')
+  const [typeFilter, setType]     = useState<KBEntryType | ''>('')
+  const [showNew, setShowNew]     = useState(false)
+  const [form, setForm]           = useState({ type: '' as KBEntryType, title: '', content: '' })
+
+  // I-04 fix: debounce search — avoids firing a request on every keystroke
+  useEffect(() => {
+    const t = setTimeout(() => setDeb(search), 300)
+    return () => clearTimeout(t)
+  }, [search])
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-kb', search, typeFilter],
-    queryFn:  () => adminApi.listKB({ search: search || undefined, type: typeFilter || undefined, active: true }),
+    queryKey: ['admin-kb', debouncedSearch, typeFilter],
+    queryFn:  () => adminApi.listKB({ search: debouncedSearch || undefined, type: typeFilter || undefined, active: true }),
   })
 
   const createMutation = useMutation({
@@ -332,6 +339,9 @@ function ConfigTab({ queryClient }: { queryClient: ReturnType<typeof useQueryCli
                     value={editVal}
                     onChange={e => setEditVal(e.target.value)}
                     style={{ ...inputStyle, width: 120 }}
+                    type={['gate_reminder_hours','min_reviewer_count','max_gate_reminders','sow_max_revision_cycles','compliance_variance_threshold'].includes(cfg.key) ? 'number' : 'text'}
+                    min={0}
+                    step={cfg.key === 'compliance_variance_threshold' ? '0.1' : '1'}
                     autoFocus
                     onKeyDown={e => e.key === 'Escape' && setEditKey(null)}
                   />

@@ -26,6 +26,7 @@
  */
 import { Router, Request, Response, NextFunction } from 'express'
 import { z } from 'zod'
+import nodemailer from 'nodemailer'
 import { AuditAction, KBEntryType, Prisma, RoleType } from '@prisma/client'
 import multer from 'multer'
 import { prisma } from '../lib/prisma'
@@ -78,8 +79,8 @@ adminRouter.post(
       await writeAuditLog({
         // no engagementId — system-level action
         userId: (req.user as AuthUser).id,
-        action: AuditAction.OVERRIDE_APPLIED,
-        detail: { event: 'role_assigned', targetUserId: userId, role },
+        action: AuditAction.ROLE_ASSIGNED,
+        detail: { targetUserId: userId, role },
       })
 
       res.json({ message: `Role ${role} assigned to user ${userId}` })
@@ -97,14 +98,31 @@ adminRouter.delete(
         return
       }
       const userId = req.params.id
+      const adminUser = req.user as AuthUser
+
+      // B-02 fix: prevent self-demotion from ADMIN
+      if (userId === adminUser.id && role === RoleType.ADMIN) {
+        res.status(400).json({ error: 'Cannot revoke your own ADMIN role' })
+        return
+      }
+      // B-02 fix: ensure at least one ADMIN remains in the system
+      if (role === RoleType.ADMIN) {
+        const remainingAdmins = await prisma.userRole.count({
+          where: { role: RoleType.ADMIN, userId: { not: userId } },
+        })
+        if (remainingAdmins === 0) {
+          res.status(400).json({ error: 'Cannot remove the last ADMIN from the system' })
+          return
+        }
+      }
 
       await prisma.userRole.deleteMany({ where: { userId, role } })
 
       await writeAuditLog({
         // no engagementId — system-level action
         userId: (req.user as AuthUser).id,
-        action: AuditAction.OVERRIDE_APPLIED,
-        detail: { event: 'role_revoked', targetUserId: userId, role },
+        action: AuditAction.ROLE_REVOKED,
+        detail: { targetUserId: userId, role },
       })
 
       res.json({ message: `Role ${role} revoked from user ${userId}` })
@@ -223,7 +241,11 @@ const ALLOWED_CONFIG_KEYS = new Set([
 
 adminRouter.get('/config', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const configs = await prisma.systemConfig.findMany({ orderBy: { key: 'asc' } })
+    // I-03 fix: exclude sow_template_ keys — those are template metadata, not operational config
+    const configs = await prisma.systemConfig.findMany({
+      where: { key: { not: { startsWith: 'sow_template_' } } },
+      orderBy: { key: 'asc' },
+    })
     res.json(configs)
   } catch (err) { next(err) }
 })
@@ -238,6 +260,18 @@ adminRouter.patch('/config/:key', async (req: Request, res: Response, next: Next
 
     const { value } = z.object({ value: z.string().min(1) }).parse(req.body)
 
+    // M-01 fix: validate numeric values before storing
+    const intKeys   = new Set(['gate_reminder_hours', 'min_reviewer_count', 'max_gate_reminders', 'sow_max_revision_cycles'])
+    const floatKeys = new Set(['compliance_variance_threshold'])
+    if (intKeys.has(key) && (!/^\d+$/.test(value) || parseInt(value, 10) <= 0)) {
+      res.status(400).json({ error: `${key} must be a positive integer` })
+      return
+    }
+    if (floatKeys.has(key) && isNaN(parseFloat(value))) {
+      res.status(400).json({ error: `${key} must be a valid number` })
+      return
+    }
+
     const config = await prisma.systemConfig.upsert({
       where:  { key },
       create: { key, value },
@@ -247,8 +281,8 @@ adminRouter.patch('/config/:key', async (req: Request, res: Response, next: Next
     await writeAuditLog({
       // no engagementId — system-level action
       userId: (req.user as AuthUser).id,
-      action: AuditAction.OVERRIDE_APPLIED,
-      detail: { event: 'config_updated', key, value },
+      action: AuditAction.CONFIG_UPDATED,
+      detail: { key, value },
     })
 
     res.json(config)
@@ -261,23 +295,16 @@ adminRouter.post('/email/test', async (req: Request, res: Response, next: NextFu
   try {
     const user = req.user as AuthUser
 
-    // Dynamic import — nodemailer optional dependency, may not be installed in all envs
-    let transporter: any
-    try {
-      const nodemailer = await import('nodemailer')
-      transporter = nodemailer.createTransport({
-        host:   env.EMAIL_SMTP_HOST,
-        port:   env.EMAIL_SMTP_PORT,
-        secure: env.EMAIL_SMTP_PORT === 465,
-        auth: {
-          user: env.EMAIL_SMTP_USER,
-          pass: env.EMAIL_SMTP_PASS,
-        },
-      })
-    } catch {
-      res.status(503).json({ error: 'SMTP not configured', message: 'nodemailer is not installed or SMTP env vars are missing' })
-      return
-    }
+    // I-02 fix: nodemailer now a proper dependency (was dynamic import)
+    const transporter = nodemailer.createTransport({
+      host:   env.EMAIL_SMTP_HOST,
+      port:   env.EMAIL_SMTP_PORT,
+      secure: env.EMAIL_SMTP_PORT === 465,
+      auth: {
+        user: env.EMAIL_SMTP_USER,
+        pass: env.EMAIL_SMTP_PASS,
+      },
+    })
 
     await transporter.sendMail({
       from:    env.EMAIL_SMTP_USER,
@@ -334,7 +361,12 @@ adminRouter.post(
         return
       }
 
-      const storageKey = `presales-templates/sow/${Date.now()}-${req.file.originalname}`
+      // B-01 fix: sanitize filename — prevent path traversal and special chars in MinIO key
+      const safeName = req.file.originalname
+        .replace(/\.\./g, '_')              // no path traversal
+        .replace(/[^a-zA-Z0-9._-]/g, '_')   // only safe chars
+        .slice(0, 100)                        // max length
+      const storageKey = `presales-templates/sow/${Date.now()}-${safeName}`
       await putObject('presales-artifacts', storageKey, req.file.buffer, mimeType)
 
       const templateUrl = await presignedUrl('presales-artifacts', storageKey, 24 * 365) // 1 year TTL
@@ -347,21 +379,24 @@ adminRouter.post(
         },
       })
 
-      // If marking as default, unmark all others
+      // I-01 fix: wrap default-marking in a transaction to prevent two concurrent
+      // uploads both marking themselves as default
       if (isDefault === 'true') {
         const all = await prisma.systemConfig.findMany({ where: { key: { startsWith: 'sow_template_' } } })
-        for (const t of all) {
-          if (t.key === configKey) continue
-          try {
-            const parsed = JSON.parse(t.value)
-            if (parsed.isDefault) {
-              await prisma.systemConfig.update({
-                where: { key: t.key },
-                data:  { value: JSON.stringify({ ...parsed, isDefault: false }) },
-              })
-            }
-          } catch { /* malformed entry — skip */ }
-        }
+        await prisma.$transaction(
+          all
+            .filter(t => t.key !== configKey)
+            .flatMap(t => {
+              try {
+                const parsed = JSON.parse(t.value)
+                if (!parsed.isDefault) return []
+                return [prisma.systemConfig.update({
+                  where: { key: t.key },
+                  data:  { value: JSON.stringify({ ...parsed, isDefault: false }) },
+                })]
+              } catch { return [] }
+            })
+        )
       }
 
       res.status(201).json({ message: 'Template uploaded', key: configKey, name, storageKey })

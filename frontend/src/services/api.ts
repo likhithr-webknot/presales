@@ -283,8 +283,9 @@ export const adminApi = {
     fd.append('isDefault', String(isDefault))
     return api.post('/api/admin/sow-templates', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data)
   },
+  // M-04 fix: strip sow_template_ prefix — backend prepends it again
   setDefaultTemplate: (key: string) =>
-    api.patch(`/api/admin/sow-templates/${key}/default`).then(r => r.data),
+    api.patch(`/api/admin/sow-templates/${key.replace('sow_template_', '')}/default`).then(r => r.data),
 }
 
 // ── Audit ─────────────────────────────────────────────────────────────────────
