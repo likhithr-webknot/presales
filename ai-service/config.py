@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     # Premium tier (narrative, SOW, technical architecture)
     llm_premium_model: str = "claude-sonnet-4-6"
 
+    # ── Web Search
+    tavily_api_key: str = ""
+    search_provider: str = "tavily"  # tavily | brave
+    brave_api_key: str = ""
+
     # ── Timeouts ──────────────────────────────────────────────────────────────
     # How long to wait on backend callback before giving up (seconds)
     backend_callback_timeout: int = 10

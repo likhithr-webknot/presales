@@ -9,6 +9,7 @@ import { healthRouter } from './routes/health.routes'
 import { engagementRouter } from './routes/engagement.routes'
 import { uploadRouter } from './routes/upload.routes'
 import { jobRouter } from './routes/job.routes'
+import { internalRouter } from './routes/internal.routes'
 import { errorMiddleware } from './middleware/error.middleware'
 
 export function createApp() {
@@ -34,6 +35,8 @@ export function createApp() {
   app.use('/api/engagements', engagementRouter)
   app.use('/api/uploads', uploadRouter)
   app.use('/api/jobs', jobRouter)
+  // Internal routes — AI service callbacks (protected by x-ai-internal-secret)
+  app.use('/api/internal', internalRouter)
 
   // Global error handler — must be last
   app.use(errorMiddleware)

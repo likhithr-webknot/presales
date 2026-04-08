@@ -1,105 +1,77 @@
 {
   "project": "presales-orchestrator",
-  "sprint": "Sprint 1.5 — Python AI Service Scaffold",
+  "sprint": "Sprint 2 — Stage 1 & 2: Research + Context + Packaging",
   "lastUpdated": "2026-04-08",
   "updatedBy": "Goku (acting as Forge — gateway unavailable)",
 
-  "architectureChange": {
-    "decision": "All LLM logic moved from Node.js to Python FastAPI service (ai-service/)",
-    "rationale": "Python is better ecosystem for LLM work — openai/anthropic SDKs, typing, async workers",
-    "repoStructure": "Monorepo — backend/ + ai-service/ + frontend/ + nginx/",
-    "communication": "Node → Python: POST http://ai-service:8000/jobs/dispatch | Python → Node: POST http://backend:3000/api/internal/job-update",
-    "decidedOn": "2026-04-08"
-  },
-
   "completedTasks": [
-    "Created ai-service/ Python FastAPI scaffold",
-    "ai-service/pyproject.toml — Poetry config with FastAPI, openai, anthropic, google-generativeai",
-    "ai-service/Dockerfile — Python 3.11-slim multi-stage build",
-    "ai-service/main.py — FastAPI app with lifespan, health endpoint, router includes",
-    "ai-service/config.py — Pydantic BaseSettings with all required env vars",
-    "ai-service/routers/jobs.py — POST /jobs/dispatch with internal secret auth",
-    "ai-service/routers/intake.py — POST /intake/parse",
-    "ai-service/routers/collateral.py — POST /collateral/detect",
-    "ai-service/schemas/job.py — DispatchRequest, JobCallback, JobStatus (Pydantic v2)",
-    "ai-service/schemas/intake.py — IntakeParseRequest, IntakeParseResponse, ParsedFields",
-    "ai-service/schemas/collateral.py — CollateralDetectRequest, CollateralType enum",
-    "ai-service/workers/dispatcher.py — jobType → worker routing with Node callback",
-    "ai-service/workers/stub_worker.py — generic stub for unimplemented job types",
-    "ai-service/workers/intake_parser.py — REAL GPT-4o-mini intake parsing",
-    "ai-service/workers/collateral_detector.py — rule-based + LLM fallback detection",
-    "backend/src/services/ai-client.ts — Node HTTP client for Python service",
-    "backend/src/agents/orchestrator/intake-parser.ts — updated to call ai-client",
-    "backend/src/agents/orchestrator/collateral-detector.ts — updated to call ai-client",
-    "backend/src/services/llm/router.ts — gutted (LLM logic moved to ai-service)",
-    "backend/src/config/env.ts — added AI_SERVICE_URL + AI_INTERNAL_SECRET vars",
-    "docker-compose.yml — added ai-service container (port 8001 external / 8000 internal)",
-    ".env.example — added AI_SERVICE_URL, AI_INTERNAL_SECRET, moved LLM keys note"
+    "ai-service/schemas/agents.py — ResearchBrief, WebknotContextOutput, PackagingInput/Output, all Sprint 2 schemas",
+    "ai-service/workers/research.py — REAL Secondary Research Agent (Tavily search + GPT-4o synthesis)",
+    "ai-service/workers/context_manager.py — REAL Webknot Context Manager (stub KB + GPT-4o positioning)",
+    "ai-service/workers/packaging.py — REAL Packaging Agent (python-pptx PPTX generation + quality checker)",
+    "ai-service/workers/dispatcher.py — wired research, context, packaging to real workers",
+    "ai-service/pyproject.toml — added python-pptx, python-docx",
+    "ai-service/config.py — added TAVILY_API_KEY, SEARCH_PROVIDER, BRAVE_API_KEY",
+    "backend/src/routes/internal.routes.ts — POST /api/internal/job-update (Python callback handler)",
+    "backend/src/app.ts — internalRouter registered at /api/internal",
+    ".env.example — added TAVILY_API_KEY, SEARCH_PROVIDER, BRAVE_API_KEY"
   ],
 
   "inProgressTasks": [
-    "HLD.md update — architecture diagram needs updating to show two services",
-    "SPRINTS.md update — Sprint 1.5 tasks need to be formally inserted",
-    "CONTEXT.md update — tech stack section needs Python service added"
+    "Stage 1 end-to-end orchestration (Node: research + context parallel → packaging sequential)",
+    "MeetMinds adapter wiring for Stage 2",
+    "MinIO direct upload from Python (packaging.py has placeholder URL — needs minio-py)"
   ],
 
-  "blockers": [],
+  "blockers": [
+    {
+      "blocker": "MinIO upload in packaging.py returns placeholder URL — real upload needs minio-py added to pyproject.toml and MinIO client wired",
+      "affects": "Sprint 2 AC: 'PPTX download URL returned'",
+      "priority": "P1"
+    }
+  ],
 
   "keyDecisions": [
     {
-      "decision": "Monorepo (not separate repos)",
-      "rationale": "Small team, co-deployed services, shared docker-compose — monorepo keeps velocity high"
+      "decision": "Stub KB data hardcoded in context_manager.py",
+      "rationale": "KB doesn't exist yet (Sprint 9). Stubs return general Webknot capabilities filtered by domain. Graceful warning surfaced when no projects found."
     },
     {
-      "decision": "HTTP bridge (not shared BullMQ queue)",
-      "rationale": "Simpler debugging, Python controls its own concurrency, no BullMQ-Python compatibility headaches"
+      "decision": "Slide plan generated by LLM (GPT-4o-mini), then rendered by python-pptx",
+      "rationale": "LLM decides the narrative structure; python-pptx handles the rendering. Separation of concerns — content vs format."
     },
     {
-      "decision": "LLM API keys used by Python only — removed from Node env schema",
-      "rationale": "Enforces architectural boundary — Node never calls LLMs directly"
+      "decision": "POST /api/internal/job-update protected by x-ai-internal-secret only (no JWT)",
+      "rationale": "Internal route, never exposed to public. AI service is co-deployed. JWT is for user-facing routes only."
     },
     {
-      "decision": "Intake parser + collateral detector are synchronous HTTP calls (not async jobs)",
-      "rationale": "These happen in the /message route before agent dispatch — need the result immediately to know what to dispatch"
+      "decision": "Tavily as default search provider (configurable to Brave via SEARCH_PROVIDER env)",
+      "rationale": "Tavily has better structured output for research use cases. Brave as fallback option."
     }
   ],
 
   "artifacts": {
     "created": [
-      "ai-service/pyproject.toml",
-      "ai-service/Dockerfile",
-      "ai-service/main.py",
-      "ai-service/config.py",
-      "ai-service/routers/__init__.py",
-      "ai-service/routers/jobs.py",
-      "ai-service/routers/intake.py",
-      "ai-service/routers/collateral.py",
-      "ai-service/schemas/__init__.py",
-      "ai-service/schemas/job.py",
-      "ai-service/schemas/intake.py",
-      "ai-service/schemas/collateral.py",
-      "ai-service/workers/__init__.py",
-      "ai-service/workers/dispatcher.py",
-      "ai-service/workers/stub_worker.py",
-      "ai-service/workers/intake_parser.py",
-      "ai-service/workers/collateral_detector.py",
-      "backend/src/services/ai-client.ts"
+      "ai-service/schemas/agents.py",
+      "ai-service/workers/research.py",
+      "ai-service/workers/context_manager.py",
+      "ai-service/workers/packaging.py",
+      "backend/src/routes/internal.routes.ts"
     ],
     "modified": [
-      "backend/src/agents/orchestrator/intake-parser.ts",
-      "backend/src/agents/orchestrator/collateral-detector.ts",
-      "backend/src/services/llm/router.ts",
-      "backend/src/config/env.ts",
-      "docker-compose.yml",
+      "ai-service/workers/dispatcher.py",
+      "ai-service/pyproject.toml",
+      "ai-service/config.py",
+      "backend/src/app.ts",
       ".env.example"
     ],
     "deleted": []
   },
 
   "nextAgentInstructions": {
-    "warden": "Review Sprint 1.5 changes. Key things to check: (1) ai-client.ts error handling — if Python service is down, does Node fail gracefully or crash? (2) Internal secret header present on all Python routes? (3) dispatcher.py callback — does it handle httpx errors without crashing the background task? (4) env.ts — AI_SERVICE_URL and AI_INTERNAL_SECRET correctly validated? (5) Docker depends_on ordering correct?",
-    "forge_sprint2": "Sprint 2 builds the first real Python agents. Read ai-service/workers/dispatcher.py before starting — add real worker imports there. Sprint 2 workers go in ai-service/workers/: research.py (Secondary Research Agent), context_manager.py (Webknot Context Manager), packaging.py (Packaging Agent for Stage 1+2). All use httpx for web search (Tavily/Brave), openai/anthropic for synthesis. Node BullMQ stub workers already exist — they now call dispatchJob() from ai-client.ts instead of doing LLM work directly."
+    "forge_complete_sprint2": "Three things still needed to close Sprint 2: (1) minio-py in pyproject.toml + real MinIO upload in packaging.py — replace _upload_to_minio() placeholder with actual minio.Minio client upload + presign; (2) Stage 1 end-to-end orchestration in Node: engagement.routes.ts or orchestrator/index.ts — when both research + context jobs complete (via /api/internal/job-update), automatically enqueue packaging job; (3) MeetMinds adapter wiring for Stage 2 — POST /api/engagements/:id/meetminds-reference route. These are the remaining Sprint 2 tasks.",
+    "warden": "Review Sprint 2 Python workers. Key checks: (1) research.py — graceful when Tavily API key missing? (2) context_manager.py — warning surfaced correctly when KB empty? (3) packaging.py — quality checker catches placeholders? (4) internal.routes.ts — secret validation correct? Does it properly update AgentJob + fire WS events? (5) dispatcher.py — worker_map imports correct, fallback to stub_worker for unregistered types?"
   },
 
-  "tokenUsage": "~6000 tokens (estimated)"
+  "tokenUsage": "~10000 tokens (estimated)"
 }
