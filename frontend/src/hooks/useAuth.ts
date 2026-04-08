@@ -1,24 +1,14 @@
-import { useState, useEffect } from 'react'
-import axios from 'axios'
+import { useQuery } from '@tanstack/react-query'
+import { authApi, AuthUser } from '../services/api'
 
-export interface AuthUser {
-  id: string
-  email: string
-  name: string
-  roles: string[]
-}
+export type { AuthUser }
 
 export function useAuth() {
-  const [user, setUser] = useState<AuthUser | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    axios
-      .get<AuthUser>('/auth/me', { withCredentials: true })
-      .then((res) => setUser(res.data))
-      .catch(() => setUser(null))
-      .finally(() => setLoading(false))
-  }, [])
-
-  return { user, loading }
+  const { data: user, isLoading: loading } = useQuery<AuthUser | null>({
+    queryKey: ['auth-me'],
+    queryFn: () => authApi.me().catch(() => null),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+  return { user: user ?? null, loading }
 }
