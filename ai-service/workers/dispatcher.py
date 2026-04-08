@@ -91,6 +91,8 @@ async def _run_worker(
     from workers.narrative import run as narrative_run
     from workers.technical import run as technical_run
     from workers.scorer import run as scorer_run
+    from workers.case_study import run as case_study_run
+    from workers.diffgen import run as diffgen_run
 
     worker_map = {
         "research":  research_run,   # Sprint 2 ✅
@@ -99,7 +101,8 @@ async def _run_worker(
         "narrative": narrative_run,  # Sprint 3 ✅
         "technical": technical_run,  # Sprint 3 ✅
         "scoring":   scorer_run,     # Sprint 3 ✅
-        # "casestudy": case_study_run,  # Sprint 4
+        "casestudy": case_study_run, # Sprint 4 ✅
+        "diffgen":   diffgen_run,    # Sprint 4 ✅
         # "sow":       sow_run,         # Sprint 5
         # All other types fall through to stub_run
     }

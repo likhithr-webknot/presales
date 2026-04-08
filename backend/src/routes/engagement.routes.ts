@@ -9,6 +9,7 @@ import { writeAuditLog } from '../services/audit/logger'
 import { handleMessage } from '../agents/orchestrator/index'
 import { advanceStage } from '../agents/orchestrator/state-machine'
 import { buildCarryForwardContext } from '../agents/orchestrator/context-builder'
+import { routeFeedback } from '../agents/orchestrator/feedback-router'
 
 export const engagementRouter = Router()
 engagementRouter.use(authMiddleware)
@@ -237,7 +238,7 @@ engagementRouter.post('/:id/feedback', requireEngagementAccess, async (req: Requ
       detail: { feedback, targetSection },
     })
 
-    // Full feedback routing (routing to specific agent) is implemented in Sprint 4
-    res.json({ message: 'Feedback recorded — routing to agents in Sprint 4', feedback, targetSection })
+    const result = await routeFeedback(req.params.id, user.id, feedback, targetSection)
+    res.json(result)
   } catch (err) { next(err) }
 })

@@ -122,10 +122,24 @@ internalRouter.post('/job-update', async (req: Request, res: Response): Promise<
 
     // Auto-advance pipeline when a job completes
     if (status === 'COMPLETED') {
-      // Fire-and-forget — pipeline advancement failure must not break the callback
       tryAdvancePipeline(job_id, engagementId).catch((err) => {
         console.error('[internal/job-update] Pipeline advance failed:', err)
       })
+
+      // If this was a diffgen job, write the summary back to the EngagementVersion
+      if (output && typeof output === 'object' && 'summary' in output) {
+        const jobRecord = await prisma.agentJob.findUnique({
+          where: { id: job_id },
+          select: { input: true },
+        })
+        const versionId = (jobRecord?.input as any)?.version_id as string | undefined
+        if (versionId) {
+          await prisma.engagementVersion.update({
+            where: { id: versionId },
+            data: { diffSummary: String((output as any).summary ?? '') },
+          }).catch((e) => console.warn('[internal] diffSummary update failed:', e))
+        }
+      }
     }
 
     res.status(204).send()
