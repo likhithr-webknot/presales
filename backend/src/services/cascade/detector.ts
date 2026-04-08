@@ -30,9 +30,10 @@ export interface CascadeResult {
   hasCascade: boolean
   changedFields: string[]
   invalidatedAgents: AgentName[]
-  cancelledJobIds: string[]
-  staleVersionIds: string[]
-  shouldRestartPipeline: boolean
+  cancelledJobIds: string[]   // QUEUED/RUNNING jobs that were cancelled
+  staleJobIds: string[]       // COMPLETED jobs whose output is now invalid
+  staleVersionIds: string[]   // EngagementVersion records marked isLatest=false
+  requiresManualRestart: boolean // true when research-level agents invalidated — AM must restart pipeline
 }
 
 // ── Which fields trigger cascade, and what they invalidate ───────────────────
@@ -40,12 +41,18 @@ export interface CascadeResult {
 type CascadeField = 'domain' | 'collateralType' | 'opportunityContext' | 'clientName'
 
 /**
- * Maps a changed field → the AgentName stages that are now stale.
- * Research depends on domain + opportunity.
- * Context depends on domain.
- * Packaging/Narrative/Technical depend on everything.
- * Case study depends on domain.
- * If collateralType changes, the whole pipeline is invalid.
+ * Maps a changed field to the AgentName stages that are now stale.
+ *
+ * Dependency rationale:
+ * - domain: affects research scope, context positioning, technical architecture, case study matching
+ * - collateralType: changes the entire output format/structure — everything is invalidated
+ * - opportunityContext: affects research focus, narrative framing, technical scope
+ * - clientName: affects narrative voice, case study selection, SOW parties
+ *
+ * Intentionally excluded from all cascade fields:
+ * - ORCHESTRATOR: meta-agent, no produced artifacts
+ * - MEETMINDS_ADAPTER: read-only reference data (meeting notes), does not produce downstream artifacts
+ * - PROPOSAL_MAKER: not yet implemented (Sprint 8+)
  */
 const CASCADE_MAP: Record<CascadeField, AgentName[]> = {
   domain: [
@@ -99,8 +106,9 @@ export async function detectAndApplyCascade(
       changedFields: [],
       invalidatedAgents: [],
       cancelledJobIds: [],
+      staleJobIds: [],
       staleVersionIds: [],
-      shouldRestartPipeline: false,
+      requiresManualRestart: false,
     }
   }
 
@@ -128,12 +136,10 @@ export async function detectAndApplyCascade(
     .filter((j) => j.status === JobStatus.QUEUED || j.status === JobStatus.RUNNING)
     .map((j) => j.id)
 
-  if (activeJobIds.length > 0) {
-    await prisma.agentJob.updateMany({
-      where: { id: { in: activeJobIds } },
-      data: { status: JobStatus.CANCELLED },
-    })
-  }
+  // Collect stale completed job IDs (output is now invalid but job record stays for history)
+  const staleJobIds = jobsToCancel
+    .filter((j) => j.status === JobStatus.COMPLETED)
+    .map((j) => j.id)
 
   // Mark the latest EngagementVersion as non-latest if any packaging agent was invalidated
   let staleVersionIds: string[] = []
@@ -143,18 +149,23 @@ export async function detectAndApplyCascade(
       select: { id: true },
     })
     staleVersionIds = latestVersions.map((v) => v.id)
-
-    if (staleVersionIds.length > 0) {
-      await prisma.engagementVersion.updateMany({
-        where: { id: { in: staleVersionIds } },
-        data: { isLatest: false },
-      })
-    }
   }
 
-  // Determine if the pipeline should be auto-restarted
-  // Auto-restart only if research-level agents were invalidated (not just packaging)
-  const shouldRestartPipeline = invalidatedAgents.includes(AgentName.SECONDARY_RESEARCH)
+  // B-01 fix: wrap all DB mutations in a transaction — partial failure would leave
+  // jobs cancelled but versions still marked isLatest, corrupting engagement state.
+  // writeAuditLog is intentionally outside — audit failure must never block cascade.
+  await prisma.$transaction([
+    ...(activeJobIds.length > 0
+      ? [prisma.agentJob.updateMany({ where: { id: { in: activeJobIds } }, data: { status: JobStatus.CANCELLED } })]
+      : []),
+    ...(staleVersionIds.length > 0
+      ? [prisma.engagementVersion.updateMany({ where: { id: { in: staleVersionIds } }, data: { isLatest: false } })]
+      : []),
+  ])
+
+  // I-05 fix: renamed to requiresManualRestart — auto-restart is not wired yet (Sprint 8).
+  // Frontend should show a "Restart Pipeline" button when this is true.
+  const requiresManualRestart = invalidatedAgents.includes(AgentName.SECONDARY_RESEARCH)
 
   // Write audit log
   await writeAuditLog({
@@ -166,19 +177,21 @@ export async function detectAndApplyCascade(
       changedFields,
       invalidatedAgents,
       cancelledJobIds: activeJobIds,
+      staleJobIds,
       staleVersionIds,
-      shouldRestartPipeline,
+      requiresManualRestart,
     },
   })
 
-  // Fire WebSocket event — frontend shows a banner: "Engagement updated — pipeline restarting"
+  // Fire WebSocket event — frontend shows a banner with action button if requiresManualRestart
   wsEvents.cascadeDetected(engagementId, {
     changedFields,
     invalidatedAgents,
     cancelledJobIds: activeJobIds,
+    staleJobIds,
     staleVersionIds,
-    shouldRestartPipeline,
-    message: buildCascadeMessage(changedFields, shouldRestartPipeline),
+    requiresManualRestart,
+    message: buildCascadeMessage(changedFields, requiresManualRestart),
   })
 
   return {
@@ -186,8 +199,9 @@ export async function detectAndApplyCascade(
     changedFields,
     invalidatedAgents,
     cancelledJobIds: activeJobIds,
+    staleJobIds,
     staleVersionIds,
-    shouldRestartPipeline,
+    requiresManualRestart,
   }
 }
 
@@ -198,10 +212,10 @@ function getChangedFields(before: EngagementSnapshot, after: EngagementSnapshot)
   return fields.filter((f) => before[f] !== after[f])
 }
 
-function buildCascadeMessage(fields: string[], restart: boolean): string {
+function buildCascadeMessage(fields: string[], requiresManualRestart: boolean): string {
   const label = fields.join(', ')
-  if (restart) {
-    return `${label} changed — affected agents cancelled and pipeline will restart.`
+  if (requiresManualRestart) {
+    return `${label} changed — affected agents cancelled. Click "Restart Pipeline" to re-run.`
   }
   return `${label} changed — downstream agents marked stale. Review required.`
 }

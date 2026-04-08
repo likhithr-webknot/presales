@@ -55,8 +55,9 @@ export const wsEvents = {
       changedFields: string[]
       invalidatedAgents: string[]
       cancelledJobIds: string[]
+      staleJobIds: string[]
       staleVersionIds: string[]
-      shouldRestartPipeline: boolean
+      requiresManualRestart: boolean
       message: string
     }
   ) => emit(engagementId, 'cascade_detected', { ...d, timestamp: new Date().toISOString() }),

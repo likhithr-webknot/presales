@@ -130,13 +130,19 @@ engagementRouter.patch('/:id', requireEngagementAccess, async (req: Request, res
       },
     })
 
-    // Detect cascading impact of the change
-    const cascadeResult = await detectAndApplyCascade(
-      req.params.id,
-      { clientName: before.clientName, domain: before.domain, collateralType: before.collateralType, opportunityContext: before.opportunityContext },
-      { clientName: updated.clientName, domain: updated.domain, collateralType: updated.collateralType, opportunityContext: updated.opportunityContext },
-      userId,
-    )
+    // I-04 fix: only run cascade detection when cascade-triggering fields were changed
+    // (contactDetails-only changes don't invalidate any pipeline agents)
+    const cascadeFields = ['clientName', 'domain', 'collateralType', 'opportunityContext']
+    const hasCascadeableChange = Object.keys(body).some((k) => cascadeFields.includes(k))
+
+    const cascadeResult = hasCascadeableChange
+      ? await detectAndApplyCascade(
+          req.params.id,
+          { clientName: before.clientName, domain: before.domain, collateralType: before.collateralType, opportunityContext: before.opportunityContext },
+          { clientName: updated.clientName, domain: updated.domain, collateralType: updated.collateralType, opportunityContext: updated.opportunityContext },
+          userId,
+        )
+      : { hasCascade: false, changedFields: [], invalidatedAgents: [], cancelledJobIds: [], staleJobIds: [], staleVersionIds: [], requiresManualRestart: false }
 
     // Audit the update
     await writeAuditLog({

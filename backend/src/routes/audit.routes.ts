@@ -123,7 +123,7 @@ auditRouter.get('/summary', async (req: Request, res: Response, next: NextFuncti
       revisions:         actionCounts.find((r) => (r.action as string) === AuditAction.REVISION_REQUESTED)?._count.id ?? 0,
       byAction:          Object.fromEntries(actionCounts.map((r) => [r.action as string, r._count.id])),
       recentActivity,
-      contributors:      userActivity.map((r) => r.user).filter(Boolean),
+      contributors:      userActivity.map((r) => r.user).filter((u): u is NonNullable<typeof u> => u !== null),
     })
   } catch (err) { next(err) }
 })
@@ -148,14 +148,21 @@ globalAuditRouter.get(
       const query = globalQuerySchema.parse(req.query)
       const skip = (query.page - 1) * query.limit
 
+      // I-03 fix: require a date bound when no engagementId filter is provided
+      // to prevent full-table scans on large audit tables.
+      const resolvedFromDate = query.fromDate
+        ?? (!query.engagementId
+          ? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() // default: last 7 days
+          : undefined)
+
       const where = {
         ...(query.engagementId ? { engagementId: query.engagementId }  : {}),
         ...(query.action       ? { action: query.action }              : {}),
         ...(query.userId       ? { userId: query.userId }              : {}),
-        ...(query.fromDate || query.toDate ? {
+        ...(resolvedFromDate || query.toDate ? {
           createdAt: {
-            ...(query.fromDate ? { gte: new Date(query.fromDate) } : {}),
-            ...(query.toDate   ? { lte: new Date(query.toDate)   } : {}),
+            ...(resolvedFromDate ? { gte: new Date(resolvedFromDate) } : {}),
+            ...(query.toDate     ? { lte: new Date(query.toDate)     } : {}),
           },
         } : {}),
       }

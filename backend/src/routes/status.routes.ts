@@ -13,12 +13,13 @@
  *   - Recent audit events (last 10)
  */
 import { Router, Request, Response, NextFunction } from 'express'
-import { GateNumber, GateStatus, JobStatus } from '@prisma/client'
+import { AgentName, EngagementStatus, GateNumber, GateStatus, JobStatus } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { authMiddleware } from '../middleware/auth.middleware'
 import { requireEngagementAccess } from '../middleware/engagement-access'
 import { getPipeline } from '../agents/orchestrator/routing'
-import { presignedUrl } from '../services/storage/service'
+// presignedUrl intentionally NOT imported here — status is polled frequently;
+// generating presigned URLs on every poll is wasteful. Frontend uses GET /artifacts/download.
 
 export const statusRouter = Router({ mergeParams: true })
 
@@ -146,14 +147,14 @@ statusRouter.get('/', async (req: Request, res: Response, next: NextFunction): P
 
     for (let i = 0; i < pipeline.length; i++) {
       const step = pipeline[i]
-      const stepAgents = step.agents
-      const anyActive = stepAgents.some((a) => activeAgentNames.has(a as any))
-      const allDone   = stepAgents.every((a) => completedAgentNames.has(a as any))
+      const stepAgents = step.agents as AgentName[]
+      const anyActive = stepAgents.some((a) => activeAgentNames.has(a))
+      const allDone   = stepAgents.every((a) => completedAgentNames.has(a))
 
       if (anyActive) {
         currentStepIndex = i
         currentStepAgents = stepAgents
-        nextStepAgents = pipeline[i + 1]?.agents ?? []
+        nextStepAgents = (pipeline[i + 1]?.agents ?? []) as AgentName[]
         break
       }
 
@@ -161,27 +162,25 @@ statusRouter.get('/', async (req: Request, res: Response, next: NextFunction): P
         // Step not started yet — this is the current expected step
         currentStepIndex = i
         currentStepAgents = stepAgents
-        nextStepAgents = pipeline[i + 1]?.agents ?? []
+        nextStepAgents = (pipeline[i + 1]?.agents ?? []) as AgentName[]
         break
       }
     }
 
-    // ── Latest artifact with presigned URL ───────────────────────────────────
-    const latestVersion = versions.find((v) => v.isLatest) ?? versions[0] ?? null
-    let latestArtifactUrl: string | null = null
-
-    if (latestVersion) {
-      const artifacts = latestVersion.artifacts as any
-      const storageKey = artifacts?.storage_key ?? artifacts?.storageKey ?? null
-      if (storageKey) {
-        try {
-          latestArtifactUrl = await presignedUrl('presales-artifacts', storageKey, 24)
-        } catch {
-          // Non-fatal — URL generation failure shouldn't break the status call
-          latestArtifactUrl = null
-        }
-      }
+    // B-02 fix: if all steps complete, currentStepIndex stays -1 — set it to last step
+    // so frontend can distinguish "complete" from "not started"
+    if (currentStepIndex === -1 && pipeline.length > 0) {
+      currentStepIndex = pipeline.length - 1
+      currentStepAgents = pipeline[pipeline.length - 1].agents as AgentName[]
+      nextStepAgents = []
     }
+
+    // ── Latest artifact with presigned URL ───────────────────────────────────
+    // I-02 fix: storageKey only — no presigned URL on status poll (called frequently)
+    const latestVersion = versions.find((v) => v.isLatest) ?? versions[0] ?? null
+    const latestStorageKey: string | null = latestVersion
+      ? ((latestVersion.artifacts as any)?.storage_key ?? (latestVersion.artifacts as any)?.storageKey ?? null)
+      : null
 
     // ── Overall health ────────────────────────────────────────────────────────
     const hasBlockedGate   = Object.values(gatesByNumber).some((g) => g.overallStatus === GateStatus.REJECTED)
@@ -196,7 +195,7 @@ statusRouter.get('/', async (req: Request, res: Response, next: NextFunction): P
         currentStepAgents,
         nextStepAgents,
         completedSteps:    pipeline.filter((step) =>
-          step.agents.every((a) => completedAgentNames.has(a as any))
+          (step.agents as AgentName[]).every((a) => completedAgentNames.has(a))
         ).length,
       },
 
@@ -216,7 +215,7 @@ statusRouter.get('/', async (req: Request, res: Response, next: NextFunction): P
 
       latestVersion: latestVersion ? {
         ...latestVersion,
-        downloadUrl: latestArtifactUrl,
+        storageKey: latestStorageKey,  // call GET /artifacts/download for a presigned URL
       } : null,
 
       recentActivity: auditLogs,
@@ -225,7 +224,7 @@ statusRouter.get('/', async (req: Request, res: Response, next: NextFunction): P
         hasBlockedGate,
         hasCriticalError,
         hasActiveWork:  activeJobs.length > 0,
-        isComplete:     engagement.status === 'DELIVERED' || sowFullyApproved,
+        isComplete:     engagement.status === EngagementStatus.DELIVERED || sowFullyApproved,
       },
     })
   } catch (err) { next(err) }
