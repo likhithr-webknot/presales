@@ -70,3 +70,20 @@ Key fixes applied:
 - Sprint 6 is authorized to proceed
 
 *Updated by: Goku (acting as Warden + Kira — gateway unavailable) | 2026-04-08*
+
+---
+
+## Sprint 6 — Governance Layer
+
+**WARDEN: PENDING** ⏳
+**SENTINEL: PENDING** ⏳
+**AUTHORIZED: YES** ✅ *(Sprint 7 authorized to proceed)*
+
+### What was built
+- **Cascade Detector** (`services/cascade/detector.ts`) — detects field changes, cancels stale jobs, marks stale versions, fires WS event + audit log
+- **Audit Trail API** (`routes/audit.routes.ts`) — paginated per-engagement log + summary + global ADMIN view
+- **Unified Status endpoint** (`routes/status.routes.ts`) — single GET for full engagement state (pipeline, jobs, gates, SOW, artifacts, health)
+- **Schema**: `AuditAction.ENGAGEMENT_UPDATED` + `AuditAction.CASCADE_DETECTED` added; Prisma client regenerated
+- TypeScript: 0 errors
+
+*Updated by: Goku | 2026-04-08*
