@@ -14,6 +14,7 @@ import { meetmindsRouter } from './routes/meetminds.routes'
 import { gateRouter } from './routes/gate.routes'
 import { versionRouter } from './routes/version.routes'
 import { artifactRouter } from './routes/artifact.routes'
+import { sowRouter } from './routes/sow.routes'
 import { errorMiddleware } from './middleware/error.middleware'
 
 export function createApp() {
@@ -45,6 +46,7 @@ export function createApp() {
   app.use('/api/engagements/:id/gates', gateRouter)
   app.use('/api/engagements/:id/versions', versionRouter)
   app.use('/api/engagements/:id/artifacts', artifactRouter)
+  app.use('/api/engagements/:id/sow', sowRouter)
 
   // Global error handler — must be last
   app.use(errorMiddleware)
