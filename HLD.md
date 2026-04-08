@@ -1,5 +1,5 @@
 # HLD — Presales Orchestrator
-*High-Level Design | Version 1.0 | April 2026*
+*High-Level Design | Version 2.0 | April 2026 — updated 2026-04-08 for Python AI Service*
 
 ---
 
@@ -7,99 +7,125 @@
 
 The Presales Orchestrator is an AI-powered collateral production platform. An AM (Account Manager) or DM (Delivery Manager) inputs context conversationally; the system coordinates multiple specialized AI agents to produce meeting-ready deliverables across 5 sales lifecycle stages.
 
+**Architectural split (as of 2026-04-08):**
+- **Node.js backend** — API layer, auth, state machine, DB (Postgres), WebSocket, file uploads. Zero LLM calls.
+- **Python AI service** — ALL LLM logic: intake parsing, collateral detection, all agent workers. FastAPI + async workers.
+- **Communication** — Node → Python: HTTP (sync for parsing, async for agent jobs). Python → Node: HTTP callback on job completion.
+
 ### 1.1 System Architecture Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          FRONTEND (React + Vite)                    │
-│  ┌──────────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────────┐ │
-│  │  Intake Chat │ │Dashboard │ │ Review   │ │  Approvals / Gates │ │
-│  │     UI       │ │          │ │ Artifact │ │                    │ │
-│  └──────┬───────┘ └────┬─────┘ └────┬─────┘ └─────────┬──────────┘ │
-└─────────┼──────────────┼────────────┼─────────────────┼────────────┘
-          │              │            │                 │
+┌──────────────────────────────────────────────────────────────────┐
+│                    FRONTEND (React + Vite)                       │
+│  ┌──────────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────┐  │
+│  │  Intake Chat │ │Dashboard │ │ Review   │ │Approvals/Gates │  │
+│  └──────┬───────┘ └────┬─────┘ └────┬─────┘ └───────┬────────┘  │
+└─────────┼──────────────┼────────────┼───────────────┼────────────┘
           │         REST API + WebSocket (Socket.io)   │
-          │              │            │                 │
-┌─────────▼──────────────▼────────────▼─────────────────▼────────────┐
-│                    BACKEND (Node.js + TypeScript + Express)          │
-│                                                                      │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │              PRESALES ORCHESTRATOR (Controller)              │   │
-│  │  • Conversational intake parsing                             │   │
-│  │  • Collateral type detection                                 │   │
-│  │  • Agent routing & sequencing                                │   │
-│  │  • Gate enforcement & review loops                           │   │
-│  │  • Version control & audit trail                             │   │
-│  │  • Context carry-forward across stages                       │   │
-│  │  • Cascade impact detection                                  │   │
-│  │  • Engagement state tracking                                 │   │
-│  └──────────────────────┬───────────────────────────────────────┘   │
-│                         │ dispatches jobs via BullMQ                 │
-│  ┌──────────────────────▼───────────────────────────────────────┐   │
-│  │                    JOB QUEUE (BullMQ + Redis)                │   │
-│  │  research-queue │ context-queue │ proposal-queue │ sow-queue │   │
-│  │  scoring-queue  │ packaging-queue │ email-queue              │   │
-│  └──────────────────────┬───────────────────────────────────────┘   │
-│                         │ workers consume jobs                       │
-│  ┌──────────────────────▼───────────────────────────────────────┐   │
-│  │                        AGENT WORKERS                         │   │
-│  │                                                               │   │
-│  │  ┌─────────────────────┐   ┌──────────────────────────────┐  │   │
-│  │  │ Secondary Research  │   │  Webknot Context Manager     │  │   │
-│  │  │ Agent               │   │  (+ KnowledgeBaseAdapter)    │  │   │
-│  │  └─────────────────────┘   └──────────────────────────────┘  │   │
-│  │  ┌─────────────────────┐   ┌──────────────────────────────┐  │   │
-│  │  │ Case Study Maker    │   │  SOW Maker                   │  │   │
-│  │  └─────────────────────┘   └──────────────────────────────┘  │   │
-│  │                                                               │   │
-│  │  ┌──────────────────────────────────────────────────────┐    │   │
-│  │  │  PROPOSAL MAKER (Parent)                             │    │   │
-│  │  │  ┌──────────────┐ ┌────────────────┐ ┌───────────┐  │    │   │
-│  │  │  │  Narrative/  │ │  Technical     │ │ Packaging │  │    │   │
-│  │  │  │  Storyline   │ │  Solution      │ │ Agent     │  │    │   │
-│  │  │  │  Agent       │ │  Agent         │ │           │  │    │   │
-│  │  │  └──────────────┘ └────────────────┘ └───────────┘  │    │   │
-│  │  └──────────────────────────────────────────────────────┘    │   │
-│  │                                                               │   │
-│  │  ┌──────────────────────────────────────────────────────┐    │   │
-│  │  │  ADAPTERS (Stub today → Real tomorrow)               │    │   │
-│  │  │  MeetMindsAdapter │ PricingAdapter │ KBAdapter       │    │   │
-│  │  └──────────────────────────────────────────────────────┘    │   │
-│  └───────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-│  ┌────────────┐  ┌─────────────┐  ┌──────────┐  ┌───────────────┐  │
-│  │ PostgreSQL │  │   pgvector  │  │  Redis   │  │  MinIO        │  │
-│  │ (primary)  │  │  (KB search)│  │  (queue) │  │  (files)      │  │
-│  └────────────┘  └─────────────┘  └──────────┘  └───────────────┘  │
-└─────────────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┼───────────────┐
-              ▼               ▼               ▼
-        OpenAI API      Anthropic API    Gemini API
-      (GPT-5 Mini,       (Sonnet 4.6)    (scoring)
-        GPT-5.1,
-        scoring)
+          │              │            │                │
+┌─────────▼──────────────▼────────────▼───────────────▼────────────┐
+│              NODE.JS BACKEND (TypeScript + Express)               │
+│  ─────────────────────────────────────────────────────────────    │
+│  Auth (Google SSO) │ State Machine │ DB (Prisma) │ WebSocket      │
+│  File Uploads      │ Audit Logger  │ RBAC        │ Email Service  │
+│                                                                   │
+│  ⚠ ZERO LLM CALLS — no OpenAI/Anthropic/Gemini SDK in Node       │
+│                                                                   │
+│  ┌────────────────────────────────────────────────────────────┐   │
+│  │  BullMQ Queues (Redis-backed)                              │   │
+│  │  research │ context │ narrative │ technical │ packaging    │   │
+│  │  sow │ casestudy │ scoring │ email │ diffgen │ pricing     │   │
+│  └─────────────────────────┬──────────────────────────────────┘   │
+│                             │                                     │
+│  ┌──────────────────────────▼──────────────────────────────────┐  │
+│  │  ai-client.ts  (HTTP bridge to Python)                      │  │
+│  │  POST /intake/parse        ← sync (Node waits for result)   │  │
+│  │  POST /collateral/detect   ← sync (Node waits for result)   │  │
+│  │  POST /jobs/dispatch       ← async (202 Accepted)           │  │
+│  └──────────────────────────┬──────────────────────────────────┘  │
+└─────────────────────────────┼─────────────────────────────────────┘
+                              │ HTTP  (internal: x-ai-internal-secret)
+                              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│               PYTHON AI SERVICE (FastAPI)                        │
+│  ─────────────────────────────────────────────────────────────   │
+│  ALL LLM calls live here. Node never touches LLM APIs directly.  │
+│                                                                   │
+│  Endpoints:                                                       │
+│    POST /intake/parse      → intake_parser.py (GPT-4o-mini) ✅   │
+│    POST /collateral/detect → collateral_detector.py (rule+LLM)✅  │
+│    POST /jobs/dispatch     → dispatcher.py → worker routing      │
+│    GET  /health            → service health check                │
+│                                                                   │
+│  ┌──────────────────────────────────────────────────────────┐    │
+│  │  AGENT WORKERS (ai-service/workers/)                     │    │
+│  │  intake_parser.py      ✅ real — GPT-4o-mini             │    │
+│  │  collateral_detector.py✅ real — rule-based + LLM        │    │
+│  │  research.py           ⏳ Sprint 2                        │    │
+│  │  context_manager.py    ⏳ Sprint 2                        │    │
+│  │  packaging.py          ⏳ Sprint 2                        │    │
+│  │  narrative.py          ⏳ Sprint 3                        │    │
+│  │  technical.py          ⏳ Sprint 3                        │    │
+│  │  scorer.py             ⏳ Sprint 3 (multi-LLM)           │    │
+│  │  case_study.py         ⏳ Sprint 4                        │    │
+│  │  sow_maker.py          ⏳ Sprint 5                        │    │
+│  └──────────────────────────────────────────────────────────┘    │
+│                              │                                    │
+│  POST /api/internal/job-update → Node (job done/failed callback) │
+└──────────────────────────────┬───────────────────────────────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              ▼                ▼                ▼
+        OpenAI API      Anthropic API      Gemini API
+      (GPT-4o-mini,    (Sonnet 4.6 —     (multi-LLM
+        GPT-4o)         narrative, SOW,    scoring)
+                        technical)
+
+┌──────────────────────────────────────────────────────────────────┐
+│  SHARED INFRASTRUCTURE                                           │
+│  PostgreSQL + pgvector │ Redis (BullMQ queues) │ MinIO (files)  │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
----
+### 1.2 Service Responsibilities
 
-## 2. Component Map
+| Service | Responsibility | LLM calls? |
+|---------|---------------|-----------|
+| Node.js backend | REST API, auth, state machine, DB, WebSocket, file uploads | ❌ None |
+| Python ai-service | All LLM agent logic, intake parsing, collateral detection, compliance scoring | ✅ All |
+| Frontend | React UI for AM/DM/Reviewer/Admin | N/A |
+
+### 1.3 Node ↔ Python Communication
+
+| Call direction | Endpoint | When | Sync? |
+|---------------|---------|------|-------|
+| Node → Python | `POST /intake/parse` | Every AM message in /message route | ✅ Sync |
+| Node → Python | `POST /collateral/detect` | Every AM message in /message route | ✅ Sync |
+| Node → Python | `POST /jobs/dispatch` | When dispatching an agent job | ❌ Async (202) |
+| Python → Node | `POST /api/internal/job-update` | When a job completes or fails | ❌ Fire-and-forget |
+
+Auth: `x-ai-internal-secret` header on all inter-service calls.
+
 
 ### 2.1 Agents (10 total)
 
-| Agent | Type | Queue | LLM Tier |
-|-------|------|-------|----------|
-| Presales Orchestrator | Controller | N/A (synchronous routing) | GPT-5 Mini for parsing; escalates |
-| Secondary Research Agent | Sub-agent | `research-queue` | GPT-5.1 |
-| Webknot Context Manager | Sub-agent | `context-queue` | GPT-5.1 |
-| MeetMinds++ | Sub-agent (adapter) | N/A (external API) | — |
-| Estimation & Pricing Tool | Sub-agent (adapter) | `pricing-queue` | — (external LLM) |
-| Case Study Maker | Sub-agent | `casestudy-queue` | GPT-5.1 |
-| SOW Maker | Sub-agent | `sow-queue` | Sonnet 4.6 |
-| Proposal Maker | Parent sub-agent | `proposal-queue` | — (coordinator) |
-| └ Narrative/Storyline Agent | Proposal sub-agent | `narrative-queue` | Sonnet 4.6 |
-| └ Technical Solution Agent | Proposal sub-agent | `technical-queue` | Sonnet 4.6 |
-| └ Packaging Agent | Proposal sub-agent | `packaging-queue` | GPT-5 Mini + templates |
+All agents now live in **`ai-service/workers/`** (Python). Node.js only holds BullMQ stub workers that call `ai-client.dispatchJob()`.
+
+| Agent | Python Worker | Queue | LLM Tier | Status |
+|-------|--------------|-------|----------|--------|
+| Presales Orchestrator | (Node routing only — no LLM) | N/A | None | ✅ Done |
+| Intake Parser | `intake_parser.py` | sync HTTP | GPT-4o-mini | ✅ Done |
+| Collateral Detector | `collateral_detector.py` | sync HTTP | rule + GPT-4o-mini | ✅ Done |
+| Secondary Research Agent | `research.py` | `research-queue` | GPT-4o | ⏳ Sprint 2 |
+| Webknot Context Manager | `context_manager.py` | `context-queue` | GPT-4o | ⏳ Sprint 2 |
+| Packaging Agent | `packaging.py` | `packaging-queue` | GPT-4o-mini + templates | ⏳ Sprint 2 |
+| MeetMinds++ | (adapter — no Python worker) | N/A | — | Stub |
+| Estimation & Pricing Tool | (adapter — `pricing.py`) | `pricing-queue` | — (external LLM) | ⏳ Sprint 4 |
+| Case Study Maker | `case_study.py` | `casestudy-queue` | GPT-4o | ⏳ Sprint 4 |
+| SOW Maker | `sow_maker.py` | `sow-queue` | Sonnet 4.6 | ⏳ Sprint 5 |
+| Narrative Agent | `narrative.py` | `narrative-queue` | Sonnet 4.6 | ⏳ Sprint 3 |
+| Technical Solution Agent | `technical.py` | `technical-queue` | Sonnet 4.6 | ⏳ Sprint 3 |
+| Multi-LLM Scorer | `scorer.py` | `scoring-queue` | Claude + Gemini + GPT-4o | ⏳ Sprint 3 |
 
 ### 2.2 Adapters (3 total — swap-ready)
 
@@ -113,7 +139,7 @@ The Presales Orchestrator is an AI-powered collateral production platform. An AM
 
 | Service | Purpose |
 |---------|---------|
-| LLM Router | Maps task type → model tier → correct API client |
+| LLM Router | **Python only** — `ai-service/config.py` defines model tiers; Node has no LLM router |
 | Multi-LLM Scorer | Parallel Claude + Gemini + GPT scoring; variance detection |
 | Email Service | Nodemailer; triggers for gate reviews, reminders, approvals |
 | Storage Service | MinIO S3-compatible; uploaded docs, generated files, templates |

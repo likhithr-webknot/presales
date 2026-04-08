@@ -7,8 +7,8 @@
 ## Project Overview
 - **Name:** Presales Orchestrator
 - **Client:** Webknot Technologies (internal product)
-- **Status:** [x] Planning | [ ] Design | [ ] Development | [ ] QA | [ ] Live
-- **Current Sprint:** Pre-Sprint — Architecture & SPEC
+- **Status:** [ ] Planning | [ ] Design | [x] Development | [ ] QA | [ ] Live
+- **Current Sprint:** Sprint 1.5 DONE → Sprint 2 next (first real Python agents)
 - **Repo:** TBD
 - **Live URL:** TBD
 
@@ -17,17 +17,20 @@
 ## Tech Stack
 | Layer | Choice | Notes |
 |-------|--------|-------|
-| Backend | Node.js + TypeScript (Express) | Webknot standard; all agents as services behind Orchestrator |
+| Backend API | Node.js + TypeScript (Express) | Auth, state machine, DB, WebSocket, file uploads — **zero LLM calls** |
+| AI Service | **Python 3.11 + FastAPI** | ALL LLM logic lives here — agents, intake parsing, collateral detection |
 | Frontend | React + Vite + TypeScript | Webknot standard |
 | Database | PostgreSQL | Engagements, audit trails, version history, approvals — all relational |
 | Vector DB | pgvector (Postgres extension) | Knowledge base semantic search for Webknot Context Manager + Case Study Maker |
-| Cache / Queue | Redis + BullMQ | Agent job queues, parallel execution, retry logic, caching LLM outputs |
+| Cache / Queue | Redis + BullMQ | Agent job queues (Node side), parallel execution, retry logic |
 | Auth | Google SSO (Passport.js) | Role-aware: AM / DM / Sales Head / Reviewer |
-| AI — Tier 1 | OpenAI GPT-5 Mini | Easy tasks: intake parsing, summaries, email gen, reminders |
-| AI — Tier 2 | OpenAI GPT-5.1 | Medium tasks: research synthesis, section drafts, critic model |
-| AI — Tier 3 | Anthropic Claude Sonnet 4.6 | Complex tasks: Narrative Agent, Technical Solution Agent, coherence pass |
+| AI — Tier 1 | OpenAI GPT-4o-mini | Easy tasks: intake parsing, collateral detection, summaries, email gen |
+| AI — Tier 2 | OpenAI GPT-4o | Medium tasks: research synthesis, section drafts, critic model |
+| AI — Tier 3 | Anthropic Claude Sonnet 4.6 | Complex tasks: Narrative Agent, Technical Solution Agent, coherence pass, SOW |
 | AI — Scoring | Multi-LLM (Claude + Gemini + GPT) | Compliance scoring only; run in parallel, compare outputs |
-| Document Output | PptxGenJS (PPTX), docxtemplater (DOCX), exceljs (XLSX) | Final packaging only — all intermediate outputs are structured JSON |
+| Service Bridge | HTTP (Node → Python) | Node calls `POST /jobs/dispatch` (async) + `/intake/parse` + `/collateral/detect` (sync) |
+| Service Bridge | HTTP (Python → Node) | Python calls `POST /api/internal/job-update` when a job completes/fails |
+| Document Output | python-pptx (PPTX), python-docx (DOCX) | In Python ai-service Packaging Agent — all intermediate outputs are structured JSON |
 | Storage | S3-compatible (MinIO self-hosted or Linode Object Storage) | Final deliverable files, uploaded RFPs, templates |
 | Email | Nodemailer + SMTP / SendGrid | Reviewer notifications, approval requests, reminders |
 | Hosting | Linode VPS (likely) | PM2 process management; Nginx reverse proxy |
@@ -63,6 +66,13 @@
 - Long-running agent work (research, proposal generation) runs as BullMQ jobs
 - Frontend polls job status or receives WebSocket updates
 - No request timeouts killing LLM jobs mid-run
+
+### 6. Python owns all LLM work
+- Node.js backend has **zero LLM API calls** — no OpenAI/Anthropic/Gemini SDK in Node
+- All AI logic: intake parsing, collateral detection, all agents → `ai-service/` (Python FastAPI)
+- Intake parse + collateral detect are **synchronous HTTP** (Node waits for result before dispatching)
+- Agent jobs are **async HTTP** (Node dispatches, Python calls back via `/api/internal/job-update`)
+- Internal auth: `x-ai-internal-secret` header on all Node↔Python calls
 
 ---
 
@@ -283,6 +293,10 @@ interface KnowledgeBaseAdapter {
 - **Adapter pattern for all integrations** — MeetMinds++, Pricing Tool, Knowledge Base all behind interfaces. Swap implementation without touching orchestration logic. Decided 2026-04-07.
 - **JSON-first internal communication** — No PPTX/DOCX until Packaging Agent runs. Enables modular section regeneration. Decided 2026-04-07.
 - **BullMQ for job orchestration** — LLM calls can take 30–120 seconds. Synchronous HTTP is the wrong primitive. Jobs give us retry, parallelism, and status tracking. Decided 2026-04-07.
+- **Python for all AI/LLM work** — Python has better LLM SDK ecosystem (openai, anthropic, google-generativeai), better async support, and cleaner typing for ML work. Node.js backend has zero LLM calls. Decided 2026-04-08.
+- **Monorepo over separate repos** — Small team, co-deployed, shared docker-compose. Velocity > isolation at this stage. Decided 2026-04-08.
+- **HTTP bridge (not shared queue)** — Node → Python via direct HTTP POST; Python → Node via callback. Simpler debugging, Python controls its own concurrency, no BullMQ-Python compatibility issues. Decided 2026-04-08.
+- **Intake/collateral detection are sync HTTP** — Called in the /message route before dispatching agents. Node needs the result immediately to know what to dispatch. Decided 2026-04-08.
 - **pgvector over a separate vector DB** — Keeps the stack simple (one DB), sufficient for the knowledge base scale Webknot needs. Upgrade path to Pinecone/Qdrant exists if needed. Decided 2026-04-07.
 - **Cascade direction: pricing constrains solution** — If budget is exceeded, descope the solution. Never inflate the price to match the solution. AM can override. Decided 2026-04-07.
 - **DM authority is SOW-only** — All other stages: AM is the operator. DM only enters at Stage 5 dual approval. Decided 2026-04-07.
@@ -296,48 +310,72 @@ interface KnowledgeBaseAdapter {
 
 ---
 
-## Folder Structure (Proposed)
+## Folder Structure (Actual — post Sprint 1.5)
 
 ```
-presales-orchestrator/
-  backend/
+presales-orchestrator/             ← monorepo root
+  backend/                         ← Node.js API (auth, state machine, DB, WS)
     src/
       agents/
-        orchestrator/         — Presales Orchestrator (main controller)
-        research/             — Secondary Research Agent
-        context-manager/      — Webknot Context Manager
-        case-study/           — Case Study Maker
-        sow-maker/            — SOW Maker
-        proposal/
-          index.ts            — Proposal Maker (parent coordinator)
-          narrative/          — Narrative/Storyline Agent
-          technical/          — Technical Solution Agent
-          packaging/          — Packaging Agent
+        orchestrator/              — routing, state machine, context builder (NO LLM)
+          intake-parser.ts         — calls ai-service /intake/parse
+          collateral-detector.ts   — calls ai-service /collateral/detect
+          routing.ts               — collateral type → agent sequence map
+          state-machine.ts         — engagement state transitions
+          context-builder.ts       — carry-forward context assembly
       adapters/
-        meetminds/            — MeetMindsAdapter (stub → real)
-        pricing/              — PricingAdapter (stub → real)
-        knowledge-base/       — KnowledgeBaseAdapter (stub → real)
-      jobs/                   — BullMQ job definitions
-      models/                 — DB schemas (Engagement, Version, Gate, Job)
-      routes/                 — Express routes (intake, status, approvals)
+        meetminds/                 — MeetMindsAdapter (stub → real Sprint 9)
+        pricing/                   — PricingAdapter (stub → real Sprint 9)
+        knowledge-base/            — KnowledgeBaseAdapter (stub → real Sprint 9)
+      jobs/                        — BullMQ queue definitions + stub workers
+        workers/                   — Stubs that call ai-client.dispatchJob()
+      routes/                      — Express routes (engagements, uploads, internal)
       services/
-        llm/                  — LLM router (picks tier based on task)
-        email/                — Nodemailer service
-        storage/              — S3/MinIO file operations
-        scoring/              — Multi-LLM compliance scoring
-      middleware/             — Auth, RBAC, error handling
-    prisma/                   — Schema + migrations
-  frontend/
+        ai-client.ts               ← NEW: HTTP bridge to Python ai-service
+        email/                     — Nodemailer service
+        storage/                   — MinIO operations
+        websocket/                 — Socket.io server + event emitters
+        audit/                     — AuditLog writer
+        llm/router.ts              — DEPRECATED (kept as marker, no logic)
+      middleware/                  — Auth, RBAC, error handling
+      config/                      — env.ts (Zod validation)
+    prisma/                        — Schema + migrations
+  ai-service/                      ← Python FastAPI (ALL LLM logic)
+    main.py                        — FastAPI app + lifespan
+    config.py                      — Pydantic settings
+    routers/
+      jobs.py                      — POST /jobs/dispatch (async agent work)
+      intake.py                    — POST /intake/parse (sync)
+      collateral.py                — POST /collateral/detect (sync)
+    schemas/
+      job.py                       — DispatchRequest, JobCallback, JobStatus
+      intake.py                    — IntakeParseRequest/Response
+      collateral.py                — CollateralType enum + detect schemas
+    workers/
+      dispatcher.py                — jobType → worker routing + Node callback
+      stub_worker.py               — generic stub for unimplemented types
+      intake_parser.py             — REAL GPT-4o-mini intake parsing ✅
+      collateral_detector.py       — rule-based + LLM fallback ✅
+      research.py                  — Sprint 2
+      context_manager.py           — Sprint 2
+      packaging.py                 — Sprint 2
+      narrative.py                 — Sprint 3
+      technical.py                 — Sprint 3
+      case_study.py                — Sprint 4
+      sow_maker.py                 — Sprint 5
+      scorer.py                    — Sprint 3 (multi-LLM compliance scoring)
+  frontend/                        ← React + Vite (Sprint 7)
     src/
       pages/
-        Dashboard/            — Engagement list + status
-        Intake/               — Conversational intake UI
-        Review/               — Artifact review + iteration
-        Approvals/            — Gate approval workflow
-        History/              — Version history + diff view
-      components/
+        Dashboard/
+        Engagement/
+        Approvals/
+        Admin/
       hooks/
-      services/               — API client
+      services/
+  nginx/                           — Reverse proxy config
+  docker-compose.yml               — All 5 services: postgres, redis, minio, ai-service, backend
+  .env.example                     — All env vars documented
 ```
 
 ---
@@ -365,9 +403,11 @@ presales-orchestrator/
 ---
 
 ## Sprint Gate Status
-- Last Warden pass: N/A — pre-sprint
-- Last Sentinel pass: N/A — pre-sprint
-- Next sprint authorized: NO — HLD + LLD written (2026-04-07), awaiting human review and sign-off before Kira sprint planning
+- Sprint 0: COMPLETE ✅
+- Sprint 1 (Orchestrator Core): COMPLETE ✅
+- Sprint 1.5 (Python AI Service Scaffold): COMPLETE ✅ — 2026-04-08
+- Warden review Sprint 1.5: PENDING
+- Sprint 2: BLOCKED pending Warden review
 
 ## Documents
 - `CONTEXT.md` — this file, project brain

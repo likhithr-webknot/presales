@@ -20,8 +20,9 @@ Three external systems are NOT yet built or fully defined. The platform is desig
 ### Agent & Frontend Dependency Map
 ```
 Sprint 0: Infra + skeleton
-Sprint 1: Orchestrator brain (no agents yet)
-Sprint 2: Stage 1 + 2 working end-to-end (Research + Context + Packaging)
+Sprint 1: Orchestrator brain (no agents yet — Node only)
+Sprint 1.5: Python AI Service scaffold (ai-service/, HTTP bridge, real intake parser + collateral detector)
+Sprint 2: Stage 1 + 2 working end-to-end (Python agents: Research + Context + Packaging)
 Sprint 3: Stage 3 backbone (Narrative + Technical + Gate machinery)
 Sprint 4: Stage 3 complete (Case Study + Pricing wiring + Defense)
 Sprint 5: Stage 5 (SOW Maker)
@@ -196,13 +197,76 @@ Sprint 10: Hardening, security, deployment
 
 ---
 
+## Sprint 1.5 — Python AI Service Scaffold ✅ COMPLETE (2026-04-08)
+**Owner:** Forge
+**Goal:** Introduce the Python `ai-service/` alongside the Node backend. All LLM logic moves to Python. Node gets a thin HTTP bridge. Intake parser + collateral detector are ported to real Python implementations.
+
+**S1.5-AI-01 — ai-service/ project scaffold** ✅
+- `ai-service/pyproject.toml` — Poetry: fastapi, uvicorn, httpx, pydantic-settings, openai, anthropic, google-generativeai
+- `ai-service/Dockerfile` — Python 3.11-slim
+- `docker-compose.yml` updated with `ai-service` container (port 8001 external / 8000 internal)
+- `.env.example` updated with `AI_SERVICE_URL`, `AI_INTERNAL_SECRET`, LLM API keys
+- AC: `docker-compose up` starts ai-service; `GET /health` returns `{ status: ok }`
+
+**S1.5-AI-02 — FastAPI app structure** ✅
+- `ai-service/main.py` — FastAPI app with lifespan context manager
+- `ai-service/config.py` — Pydantic BaseSettings (fail-fast on startup)
+- `ai-service/routers/jobs.py` — POST /jobs/dispatch (async, 202 Accepted)
+- `ai-service/routers/intake.py` — POST /intake/parse (sync)
+- `ai-service/routers/collateral.py` — POST /collateral/detect (sync)
+- AC: POST /jobs/dispatch with valid payload returns 202; health endpoint returns ok
+
+**S1.5-AI-03 — Pydantic schemas** ✅
+- `ai-service/schemas/job.py` — DispatchRequest, JobCallback, JobStatus, JobType enum
+- `ai-service/schemas/intake.py` — IntakeParseRequest/Response, ParsedFields
+- `ai-service/schemas/collateral.py` — CollateralType enum, CollateralDetectRequest/Response
+- AC: All schemas importable; Pydantic v2 syntax throughout
+
+**S1.5-AI-04 — Worker dispatcher + stub worker** ✅
+- `ai-service/workers/dispatcher.py` — routes jobType → worker coroutine; sends RUNNING + COMPLETED/FAILED callbacks to Node
+- `ai-service/workers/stub_worker.py` — generic stub for all unimplemented job types
+- All 11 job types registered (research, context, casestudy, sow, narrative, technical, packaging, pricing, scoring, email, diffgen)
+- AC: Any jobType dispatched → stub runs → Node callback called with COMPLETED status
+
+**S1.5-AI-05 — Node.js bridge updates** ✅
+- `backend/src/services/ai-client.ts` — new HTTP client: parseIntake(), detectCollateral(), dispatchJob()
+- `backend/src/agents/orchestrator/intake-parser.ts` — replaced OpenAI calls with aiClient.parseIntake()
+- `backend/src/agents/orchestrator/collateral-detector.ts` — replaced OpenAI calls with aiClient.detectCollateral()
+- `backend/src/services/llm/router.ts` — gutted; deprecation notice; no LLM logic remains
+- `backend/src/config/env.ts` — removed LLM API keys; added AI_SERVICE_URL + AI_INTERNAL_SECRET
+- AC: POST /api/engagements/:id/message still works end-to-end; intake parsing done by Python
+
+**S1.5-AI-06 — Python intake parser (real)** ✅
+- `ai-service/workers/intake_parser.py` — real GPT-4o-mini call, structured JSON output
+- Extracts: clientName, domain, opportunityContext, contactDetails, collateralType, stage, missingFields[]
+- Merges with existing context (existing fields win)
+- Generates natural follow-up question for missing fields
+- AC: "I need a deck for Acme Corp, retail sector" → structured ParsedFields returned
+
+**S1.5-AI-07 — Python collateral detector (real)** ✅
+- `ai-service/workers/collateral_detector.py` — rule-based fast path + GPT-4o-mini LLM fallback
+- Rules cover 8 patterns (SOW, proposal, defense, first meeting, etc.)
+- LLM only fires for ambiguous inputs
+- AC: "Build a proposal for Cenomi" → TECHNICAL_PROPOSAL (rule); ambiguous input → LLM classifies
+
+**S1.5-AI-08 — Docker wiring** ✅
+- `docker-compose.yml` ai-service: build ./ai-service, healthcheck, depends_on postgres + redis
+- backend service: depends_on ai-service (waits for health before starting)
+- AC: `docker-compose up` starts all services in correct order
+
+---
+
 ## Sprint 2 — Stage 1 & 2: Research + Context + Packaging
 **Owner:** Forge
-**Goal:** Full end-to-end flow for Stage 1 (First Meeting Deck) and Stage 2 (Post-Discovery Deck) works. AM can submit a request and receive a generated PPTX/DOCX.
+**Goal:** Full end-to-end flow for Stage 1 (First Meeting Deck) and Stage 2 (Post-Discovery Deck) works. AM can submit a request and receive a generated PPTX.
 
-**S2-B-01 — Secondary Research Agent**
-- `src/agents/research/index.ts` — BullMQ worker consuming `research-queue`
-- Web search via Tavily API (or Brave Search — env configurable `SEARCH_PROVIDER`)
+**⚠️ IMPORTANT — Sprint 2 builds Python workers, not Node.js workers.**
+All agent logic goes in `ai-service/workers/`. The Node.js BullMQ workers already exist as stubs that call `aiClient.dispatchJob()`. Do NOT add LLM logic to Node.
+
+**S2-AI-01 — Secondary Research Agent (Python)**
+- `ai-service/workers/research.py` — async worker consuming `research` job type
+- Web search via Tavily API (env: `TAVILY_API_KEY`) or Brave Search (`SEARCH_PROVIDER` env configurable)
+- Register in `workers/dispatcher.py` worker_map once built
 - `search.ts`: construct 4-6 targeted queries from clientName + domain + opportunityContext
 - `synthesizer.ts`: GPT-5.1 synthesis of search results → ResearchBrief schema (LLD Section 5.1)
 - Depth scaling: `light` (3-5 sources), `medium` (5-10), `deep` (10-20)
@@ -676,11 +740,12 @@ No sprint begins until previous sprint shows `AUTHORIZED: YES`.
 
 ## Summary
 
-| Sprint | Focus | Owner | Key Gate |
-|--------|-------|-------|----------|
-| Sprint 0 | Scaffold + infra | Forge | Skeleton runs; all services connect |
-| Sprint 1 | Orchestrator core | Forge | Intake → state machine → routing works |
-| Sprint 2 | Stage 1 + 2 end-to-end | Forge | AM gets a PPTX from first message |
+| Sprint | Focus | Owner | Key Gate | Status |
+|--------|-------|-------|----------|--------|
+| Sprint 0 | Scaffold + infra | Forge | Skeleton runs; all services connect | ✅ Done |
+| Sprint 1 | Orchestrator core (Node) | Forge | Intake → state machine → routing works | ✅ Done |
+| Sprint 1.5 | **Python AI Service scaffold** | Forge | ai-service running; intake + collateral real; Node bridge wired | ✅ Done |
+| Sprint 2 | Stage 1 + 2 end-to-end (Python agents) | Forge | AM gets a PPTX from first message | ⏳ Next |
 | Sprint 3 | Stage 3 backbone (gates) | Forge | Gate 1+2+3 + multi-LLM scoring work |
 | Sprint 4 | Stage 3 complete + Stage 4 | Forge | Full proposal + defense deck |
 | Sprint 5 | Stage 5 SOW | Forge | SOW walkthrough + dual approval |
