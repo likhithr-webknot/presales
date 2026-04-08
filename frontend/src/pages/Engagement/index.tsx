@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Navigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../hooks/useAuth'
 import { useEngagementStatus } from '../../hooks/useEngagementStatus'
@@ -20,6 +20,9 @@ interface ChatMessage {
 export default function EngagementPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+
+  // B-03 fix: guard against missing id (misconfigured route)
+  if (!id) return <Navigate to="/dashboard" replace />
   const { user } = useAuth()
   const { status, isLoading } = useEngagementStatus(id!)
   const queryClient = useQueryClient()
@@ -281,7 +284,7 @@ export default function EngagementPage() {
   )
 }
 
-function VersionCard({ version, engagementId }: { version: any; engagementId: string }) {
+function VersionCard({ version, engagementId }: { version: import('../../services/api').EngagementVersion; engagementId: string }) {
   const handleDownload = async () => {
     try {
       const result = await artifactsApi.download(engagementId)

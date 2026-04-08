@@ -5,6 +5,17 @@ export const api = axios.create({
   withCredentials: true,
 })
 
+// M-02 fix: redirect to login on 401 so expired sessions don't silently break the UI
+api.interceptors.response.use(
+  r => r,
+  err => {
+    if (err.response?.status === 401 && window.location.pathname !== '/login') {
+      window.location.href = '/login'
+    }
+    return Promise.reject(err)
+  }
+)
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type RoleType = 'AM' | 'DM' | 'SALES_HEAD' | 'REVIEWER' | 'ADMIN'

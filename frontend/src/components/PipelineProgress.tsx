@@ -2,6 +2,18 @@
  * PipelineProgress — horizontal step tracker
  */
 
+const AGENT_STEP_LABELS: Record<string, string> = {
+  SECONDARY_RESEARCH: 'Research',
+  CONTEXT_MANAGER:    'Context',
+  PACKAGING_AGENT:    'Packaging',
+  NARRATIVE_AGENT:    'Narrative',
+  TECHNICAL_SOLUTION: 'Technical',
+  COMPLIANCE_SCORER:  'Scoring',
+  CASE_STUDY_MAKER:   'Case Study',
+  SOW_MAKER:          'SOW',
+  PRICING_ADAPTER:    'Pricing',
+}
+
 interface Props {
   pipeline: {
     totalSteps: number
@@ -38,7 +50,9 @@ export function PipelineProgress({ pipeline, hasActiveWork }: Props) {
             }}>
               {isDone && '✓ '}
               {isActive && <span style={{ marginRight: 4 }}>⚙️</span>}
-              Step {i + 1}
+              {isCurrent && pipeline.currentStepAgents[0]
+                ? (AGENT_STEP_LABELS[pipeline.currentStepAgents[0]] ?? `Step ${i + 1}`)
+                : `Step ${i + 1}`}
               {isNext && <span style={{ marginLeft: 4, color: '#fbbf24' }}>←</span>}
             </div>
             {i < pipeline.totalSteps - 1 && (

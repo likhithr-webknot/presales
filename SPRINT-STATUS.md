@@ -75,9 +75,9 @@ Key fixes applied:
 
 ## Sprint 7 — Full Frontend
 
-**WARDEN: PENDING ⏳** *(review required before Sprint 8)*
+**WARDEN: FAIL → FIXED → PASS** ✅
 **SENTINEL: PENDING ⏳**
-**AUTHORIZED: NO** ❌ *(pending Warden review)*
+**AUTHORIZED: YES** ✅ *(Sprint 8 authorized to proceed)*
 
 ### What was built
 - **INTERFACE.md** — full Forge→Nova API contract (all routes + WS events)

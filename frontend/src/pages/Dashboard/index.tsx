@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
-import { engagementsApi, CollateralType } from '../../services/api'
+import { engagementsApi, authApi, CollateralType } from '../../services/api'
+import { disconnectSocket } from '../../services/socket'
 import { StatusBadge } from '../../components/StatusBadge'
 
 const COLLATERAL_OPTIONS: { value: CollateralType; label: string }[] = [
@@ -79,7 +80,13 @@ export default function DashboardPage() {
           )}
           <div style={{ fontSize: 13, color: '#64748b' }}>{user?.name}</div>
           <button
-            onClick={() => { fetch('/auth/logout', { method: 'POST', credentials: 'include' }).then(() => navigate('/login')) }}
+            onClick={() => {
+              authApi.logout().then(() => {
+                disconnectSocket()
+                queryClient.clear()
+                navigate('/login')
+              })
+            }}
             style={linkBtn}
           >
             Sign out

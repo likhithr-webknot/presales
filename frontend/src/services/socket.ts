@@ -20,6 +20,14 @@ export function leaveEngagementRoom(engagementId: string) {
   getSocket().emit('leave', { engagementId })
 }
 
+// M-01 fix: call on logout so stale socket doesn't persist with expired auth
+export function disconnectSocket() {
+  if (socket) {
+    socket.disconnect()
+    socket = null
+  }
+}
+
 export type WsJobStarted = { agentName: string; jobId: string; jobDbId: string; timestamp: string }
 export type WsJobProgress = { agentName: string; jobId: string; message: string; percentComplete?: number }
 export type WsJobCompleted = { agentName: string; jobId: string; outputSummary: string; timestamp: string }

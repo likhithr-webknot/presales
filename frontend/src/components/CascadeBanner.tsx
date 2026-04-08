@@ -15,7 +15,11 @@ export function CascadeBanner({ engagementId, onRestart }: Props) {
 
   useEffect(() => {
     const socket = getSocket()
-    const handler = (data: WsCascadeDetected) => setEvent(data)
+    // I-05 fix: scope handler to this engagement — ignore cascade events for others
+    const handler = (data: WsCascadeDetected & { engagementId?: string }) => {
+      if (data.engagementId && data.engagementId !== engagementId) return
+      setEvent(data)
+    }
     socket.on('cascade_detected', handler)
     return () => { socket.off('cascade_detected', handler) }
   }, [engagementId])

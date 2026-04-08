@@ -30,14 +30,21 @@ const STATUS_COLORS: Record<string, string> = {
 export function GatePanel({ gates, engagementId, userId, onAction }: Props) {
   const [feedback, setFeedback] = useState<Record<string, string>>({})
   const [loading, setLoading]   = useState<Record<string, boolean>>({})
+  const [errors, setErrors]     = useState<Record<string, string>>({})
 
   if (gates.length === 0) return null
 
+  // I-01 fix: surface error to user if approval API call fails
   const handleApprove = async (gateNumber: string, approved: boolean) => {
     setLoading(p => ({ ...p, [gateNumber]: true }))
+    setErrors(p => ({ ...p, [gateNumber]: '' }))
     try {
       await gatesApi.approve(engagementId, gateNumber, { approved, feedback: feedback[gateNumber] })
       onAction?.()
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message
+        ?? 'Approval failed. Please try again.'
+      setErrors(p => ({ ...p, [gateNumber]: msg }))
     } finally {
       setLoading(p => ({ ...p, [gateNumber]: false }))
     }
@@ -88,6 +95,11 @@ export function GatePanel({ gates, engagementId, userId, onAction }: Props) {
                   boxSizing: 'border-box',
                 }}
               />
+              {errors[gate.gateNumber] && (
+                <div style={{ fontSize: 11, color: '#f87171', marginTop: 6 }}>
+                  {errors[gate.gateNumber]}
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <button
                   onClick={() => handleApprove(gate.gateNumber, true)}

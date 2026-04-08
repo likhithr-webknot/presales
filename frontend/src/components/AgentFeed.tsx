@@ -30,10 +30,16 @@ interface Props {
 export function AgentFeed({ active, failed, completedCount, onJobAction }: Props) {
   const [liveFailures, setLiveFailures] = useState<WsJobFailed[]>([])
 
+  // I-03 fix: clear liveFailures when backend confirms no failures (prevents unbounded growth)
+  useEffect(() => {
+    if (failed.length === 0) setLiveFailures([])
+  }, [failed.length])
+
   useEffect(() => {
     const socket = getSocket()
     const handler = (data: WsJobFailed) => {
-      setLiveFailures(prev => [data, ...prev.filter(f => f.jobId !== data.jobId)])
+      // Keep last 10 failures max to prevent unbounded growth
+      setLiveFailures(prev => [data, ...prev.filter(f => f.jobId !== data.jobId)].slice(0, 10))
     }
     socket.on('job_failed', handler)
     return () => { socket.off('job_failed', handler) }

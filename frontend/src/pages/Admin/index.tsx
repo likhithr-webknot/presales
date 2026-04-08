@@ -11,7 +11,7 @@ export default function AdminPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
 
-  const { data: engagements = [] } = useQuery({
+  const { data: engagements = [], isLoading: engLoading } = useQuery({
     queryKey: ['engagements'],
     queryFn: engagementsApi.list,
   })
@@ -64,6 +64,9 @@ export default function AdminPage() {
         <h2 style={{ fontSize: 15, fontWeight: 700, color: '#94a3b8', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
           All Engagements
         </h2>
+        {engLoading && (
+          <div style={{ color: '#475569', fontSize: 13, padding: '16px 0' }}>Loading engagements…</div>
+        )}
         <div style={{ borderRadius: 10, border: '1px solid #1e293b', overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
