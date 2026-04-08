@@ -1,66 +1,42 @@
 {
   "project": "presales-orchestrator",
-  "sprint": "Sprint 2 — COMPLETE",
+  "sprint": "Sprint 5 COMPLETE — all backend sprints 0-5 done",
   "lastUpdated": "2026-04-08",
-  "updatedBy": "Goku (acting as Forge — gateway unavailable)",
+  "updatedBy": "Goku (acting as Forge)",
+
+  "completedSprints": ["Sprint 0", "Sprint 1", "Sprint 1.5", "Sprint 2", "Sprint 3", "Sprint 4", "Sprint 5"],
 
   "completedTasks": [
-    "ai-service/workers/research.py — Tavily search + GPT-4o synthesis → ResearchBrief",
-    "ai-service/workers/context_manager.py — stub KB + GPT-4o positioning → WebknotContextOutput",
-    "ai-service/workers/packaging.py — python-pptx slide generation + real MinIO upload",
-    "ai-service/workers/dispatcher.py — research, context, packaging wired to real workers",
-    "ai-service/schemas/agents.py — all Sprint 2 Pydantic schemas",
-    "backend/src/agents/orchestrator/pipeline-advance.ts — auto-advances pipeline when parallel step completes",
-    "backend/src/routes/internal.routes.ts — POST /api/internal/job-update + pipeline advance trigger",
-    "backend/src/agents/orchestrator/index.ts — dispatches to Python AI service (BullMQ stub fallback)",
-    "backend/src/routes/meetminds.routes.ts — POST /api/engagements/:id/meetminds-reference",
-    "backend/src/app.ts — meetmindsRouter registered",
-    "pyproject.toml — python-pptx, python-docx, minio added",
-    "TypeScript: 0 errors"
+    "Sprint 3: narrative.py (Claude Sonnet — positioning + coherence), technical.py, scorer.py (parallel multi-LLM)",
+    "Sprint 3: Gate routes (submit/approve/override/assign-reviewer), gate reminder scheduler",
+    "Sprint 4: case_study.py (stub KB + GPT-4o), diffgen.py (plain-language diffs)",
+    "Sprint 4: version.routes.ts, artifact.routes.ts, feedback-router.ts",
+    "Sprint 5: sow_maker.py (11 sections, language validator, full+section modes)",
+    "Sprint 5: sow.routes.ts (start, confirm, revise, dual approval)",
+    "All 10 Python job types now wired to real workers in dispatcher.py"
   ],
+
+  "allPythonWorkersStatus": {
+    "research":  "REAL ✅",
+    "context":   "REAL ✅",
+    "packaging": "REAL ✅",
+    "narrative": "REAL ✅",
+    "technical": "REAL ✅",
+    "scoring":   "REAL ✅",
+    "casestudy": "REAL ✅",
+    "diffgen":   "REAL ✅",
+    "sow":       "REAL ✅",
+    "pricing":   "STUB (Sprint 9 — external system)",
+    "email":     "STUB (Sprint 6 — email service)"
+  },
 
   "inProgressTasks": [],
   "blockers": [],
 
-  "keyDecisions": [
-    {
-      "decision": "Pipeline auto-advancement is fire-and-forget from the job-update callback",
-      "rationale": "Pipeline failure must not fail the callback response to Python. Python doesn't care about downstream pipeline state."
-    },
-    {
-      "decision": "AI service dispatch with BullMQ stub fallback",
-      "rationale": "If Python ai-service is temporarily down, engagement doesn't hang — falls back to BullMQ stub which marks job complete. Recoverable."
-    },
-    {
-      "decision": "MinIO upload in Python packaging.py via minio-py (sync wrapped in asyncio executor)",
-      "rationale": "minio-py is synchronous — run_in_executor keeps async event loop healthy."
-    }
-  ],
-
-  "artifacts": {
-    "created": [
-      "ai-service/schemas/agents.py",
-      "ai-service/workers/research.py",
-      "ai-service/workers/context_manager.py",
-      "ai-service/workers/packaging.py",
-      "backend/src/agents/orchestrator/pipeline-advance.ts",
-      "backend/src/routes/internal.routes.ts",
-      "backend/src/routes/meetminds.routes.ts"
-    ],
-    "modified": [
-      "ai-service/workers/dispatcher.py",
-      "ai-service/pyproject.toml",
-      "ai-service/config.py",
-      "backend/src/agents/orchestrator/index.ts",
-      "backend/src/app.ts",
-      ".env.example"
-    ]
-  },
-
   "nextAgentInstructions": {
-    "warden": "Review Sprint 2. Key checks: (1) pipeline-advance.ts — does it correctly detect when all parallel jobs in a step complete? Off-by-one in stepIndex? (2) internal.routes.ts — output cast to InputJsonValue safe? (3) packaging.py — MinIO error handling: if upload fails, does job still complete with fallback URL rather than crash? (4) research.py — if TAVILY_API_KEY missing, returns empty results + low confidence warning (not a crash)? (5) meetminds.routes.ts — does requireEngagementAccess middleware correctly protect the route? Auth header required?",
-    "kira": "Update SPRINT-STATUS.md for Sprint 2. Set WARDEN: PENDING, SENTINEL: PENDING, AUTHORIZED: NO until both pass. Sprint 3 is next: Narrative Agent, Technical Solution Agent, Gate 1+2+3 machinery, multi-LLM compliance scorer."
+    "warden": "Review Sprints 3-5 code. Focus: (1) scorer.py — parallel gather with return_exceptions=True handles provider failures gracefully? (2) gate.routes.ts — findFirst+create pattern for approvals is race-condition safe? (3) sow.routes.ts — dual approval logic correct (both SOW_AM and SOW_DM)? (4) feedback-router.ts — fallback to PACKAGING_AGENT when no route matched? (5) version.routes.ts — isLatest flag correctly toggled on new version creation?",
+    "nova": "Sprint 7 is next — full frontend. Read INTERFACE.md before writing any API calls. Key endpoints now available: /api/engagements (CRUD + message + feedback + advance-stage), /api/engagements/:id/gates/:gateNumber (submit/approve/override), /api/engagements/:id/sow (start/confirm/revise/approve), /api/engagements/:id/versions, /api/engagements/:id/artifacts/download, /api/engagements/:id/meetminds-reference. WebSocket events: job_started, job_completed, job_failed, gate_ready, gate_approved, gate_rejected, gate_reminder, artifact_ready, sow_section_ready, cascade_detected."
   },
 
-  "tokenUsage": "~15000 tokens (estimated)"
+  "tokenUsage": "~25000 tokens (estimated this session)"
 }
