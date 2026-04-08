@@ -6,6 +6,7 @@ import { writeAuditLog } from '../../services/audit/logger'
 import { parseIntake, ParsedIntake } from './intake-parser'
 import { detectCollateralType } from './collateral-detector'
 import { getPipeline, RESEARCH_DEPTH_BY_STAGE } from './routing'
+import { dispatchJob } from '../../services/ai-client'
 
 export interface OrchestratorMessageResult {
   status: 'needs_info' | 'dispatched'
@@ -115,23 +116,23 @@ async function dispatchAgents(
       },
     })
 
-    // Enqueue to BullMQ
-    const queue = agentToQueue(agentName)
-    if (queue) {
-      const bullJob = await queue.add(agentName, { ...jobInput, jobId: dbJob.id })
-
-      // Update with BullMQ job ID
-      await prisma.agentJob.update({
-        where: { id: dbJob.id },
-        data: { bullmqJobId: bullJob.id ?? null },
-      })
-
-      // Emit WebSocket event
+    // Dispatch to Python AI service (primary) with BullMQ as fallback for unimplemented types
+    const jobType = agentToJobType(agentName)
+    try {
+      await dispatchJob(dbJob.id, engagementId, jobType, { ...jobInput, job_id: dbJob.id })
       wsEvents.jobStarted(engagementId, {
         agentName,
-        jobId: bullJob.id ?? dbJob.id,
+        jobId: dbJob.id,
         jobDbId: dbJob.id,
       })
+    } catch (err) {
+      // AI service unavailable — fall back to BullMQ stub so the engagement doesn't hang
+      console.warn(`[Orchestrator] AI service dispatch failed for ${agentName}, falling back to BullMQ stub:`, err)
+      const queue = agentToQueue(agentName)
+      if (queue) {
+        const bullJob = await queue.add(agentName, { ...jobInput, jobId: dbJob.id })
+        await prisma.agentJob.update({ where: { id: dbJob.id }, data: { bullmqJobId: bullJob.id ?? null } })
+      }
     }
 
     jobIds.push(dbJob.id)
@@ -167,6 +168,22 @@ function buildJobInput(
   return base
 }
 
+function agentToJobType(agentName: AgentName): string {
+  const map: Partial<Record<AgentName, string>> = {
+    [AgentName.SECONDARY_RESEARCH]: 'research',
+    [AgentName.CONTEXT_MANAGER]:    'context',
+    [AgentName.CASE_STUDY_MAKER]:   'casestudy',
+    [AgentName.SOW_MAKER]:          'sow',
+    [AgentName.NARRATIVE_AGENT]:    'narrative',
+    [AgentName.TECHNICAL_SOLUTION]: 'technical',
+    [AgentName.PACKAGING_AGENT]:    'packaging',
+    [AgentName.PRICING_ADAPTER]:    'pricing',
+    [AgentName.COMPLIANCE_SCORER]:  'scoring',
+    [AgentName.MEETMINDS_ADAPTER]:  'meetminds',
+  }
+  return map[agentName] ?? agentName.toLowerCase()
+}
+
 function agentToQueue(agentName: AgentName) {
   const map: Partial<Record<AgentName, keyof typeof queues>> = {
     [AgentName.SECONDARY_RESEARCH]: 'research',
@@ -178,7 +195,7 @@ function agentToQueue(agentName: AgentName) {
     [AgentName.PACKAGING_AGENT]:    'packaging',
     [AgentName.PRICING_ADAPTER]:    'pricing',
     [AgentName.COMPLIANCE_SCORER]:  'scoring',
-    [AgentName.MEETMINDS_ADAPTER]:  'research', // MeetMinds uses research queue slot
+    [AgentName.MEETMINDS_ADAPTER]:  'research',
   }
   const queueName = map[agentName]
   return queueName ? queues[queueName] : null

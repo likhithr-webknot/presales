@@ -5,10 +5,11 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
-import { JobStatus } from '@prisma/client'
+import { JobStatus, Prisma } from '@prisma/client'
 import { wsEvents } from '../services/websocket/events'
-import { auditLogger } from '../services/audit/logger'
+import { writeAuditLog } from '../services/audit/logger'
 import { env } from '../config/env'
+import { tryAdvancePipeline } from '../agents/orchestrator/pipeline-advance'
 
 export const internalRouter = Router()
 
@@ -65,7 +66,7 @@ internalRouter.post('/job-update', async (req: Request, res: Response): Promise<
       where: { id: job_id },
       data: {
         status:      prismaStatus,
-        output:      output ?? undefined,
+        output:      output ? (output as Prisma.InputJsonValue) : undefined,
         error:       error ?? undefined,
         completedAt: ['COMPLETED', 'FAILED'].includes(status) ? new Date() : undefined,
       },
@@ -74,15 +75,17 @@ internalRouter.post('/job-update', async (req: Request, res: Response): Promise<
     // Fire appropriate WebSocket events
     const engagementId = job.engagementId
 
+    const agentLabel = agent_name ?? job.agentName
+
     if (status === 'RUNNING') {
       wsEvents.jobStarted(engagementId, {
-        agentName: agent_name ?? job.agentName,
+        agentName: agentLabel,
         jobId: job_id,
-        timestamp: new Date().toISOString(),
+        jobDbId: job_id,
       })
     } else if (status === 'COMPLETED') {
       wsEvents.jobCompleted(engagementId, {
-        agentName: agent_name ?? job.agentName,
+        agentName: agentLabel,
         jobId: job_id,
         outputSummary: output ? JSON.stringify(output).slice(0, 200) : '',
       })
@@ -90,26 +93,40 @@ internalRouter.post('/job-update', async (req: Request, res: Response): Promise<
       // If output contains a presigned_url — fire artifact_ready event
       if (output && typeof output === 'object' && 'presigned_url' in output) {
         wsEvents.artifactReady(engagementId, {
-          artifactType: job.agentName,
+          collateralType: job.agentName,
+          format: 'pptx',
           downloadUrl: output.presigned_url as string,
+          version: (output.version as number) ?? 1,
         })
       }
     } else if (status === 'FAILED') {
       wsEvents.jobFailed(engagementId, {
-        agentName: agent_name ?? job.agentName,
+        agentName: agentLabel,
         jobId: job_id,
-        error: error ?? 'Unknown error from AI service',
-        options: ['retry', 'proceed', 'manual'],
+        errorMessage: error ?? 'Unknown error from AI service',
+        options: [
+          { id: 'retry',   label: 'Retry',              description: 'Re-run this agent' },
+          { id: 'proceed', label: 'Proceed anyway',      description: 'Continue with available output' },
+          { id: 'manual',  label: 'Provide manual input', description: 'Enter the output manually' },
+        ],
       })
     }
 
     // Audit log
-    await auditLogger.log({
+    await writeAuditLog({
+      engagementId,
       userId:   'ai-service',
-      action:   `JOB_${status}`,
-      entityId: job_id,
-      detail:   { agent: agent_name, engagementId, error: error ?? undefined },
+      action:   'AGENT_INVOKED' as any,
+      detail:   { jobId: job_id, status, agent: agent_name, error: error ?? undefined },
     })
+
+    // Auto-advance pipeline when a job completes
+    if (status === 'COMPLETED') {
+      // Fire-and-forget — pipeline advancement failure must not break the callback
+      tryAdvancePipeline(job_id, engagementId).catch((err) => {
+        console.error('[internal/job-update] Pipeline advance failed:', err)
+      })
+    }
 
     res.status(204).send()
   } catch (err) {

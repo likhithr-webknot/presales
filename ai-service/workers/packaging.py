@@ -9,10 +9,13 @@ Stage 2: 8-10 slide PPTX (Post-Discovery Deck)
 import io
 import json
 import logging
+import os
 import re
 from typing import Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
+from minio import Minio
+from minio.error import S3Error
 from openai import AsyncOpenAI
 from pptx import Presentation
 from pptx.util import Inches, Pt
@@ -186,17 +189,54 @@ async def _generate_slide_plan(
         return []
 
 
+def _get_minio_client() -> Minio:
+    """Create a MinIO client from environment variables."""
+    endpoint = os.getenv("STORAGE_ENDPOINT", "minio:9000").replace("http://", "").replace("https://", "")
+    access_key = os.getenv("STORAGE_ACCESS_KEY", "minioadmin")
+    secret_key = os.getenv("STORAGE_SECRET_KEY", "minioadmin")
+    secure = os.getenv("STORAGE_ENDPOINT", "").startswith("https")
+    return Minio(endpoint, access_key=access_key, secret_key=secret_key, secure=secure)
+
+
+def _upload_to_minio_sync(file_bytes: bytes, key: str, content_type: str) -> str:
+    """
+    Upload file to MinIO bucket and return a presigned URL (24h TTL).
+    Synchronous — called from async context via run_in_executor if needed.
+    """
+    bucket = os.getenv("STORAGE_BUCKET_ARTIFACTS", "presales-artifacts")
+    client = _get_minio_client()
+
+    # Ensure bucket exists
+    try:
+        if not client.bucket_exists(bucket):
+            client.make_bucket(bucket)
+    except S3Error as exc:
+        logger.warning("MinIO bucket check/create failed: %s", exc)
+
+    # Upload
+    try:
+        client.put_object(
+            bucket,
+            key,
+            io.BytesIO(file_bytes),
+            length=len(file_bytes),
+            content_type=content_type,
+        )
+        # Presigned URL — 24 hour TTL
+        url = client.presigned_get_object(bucket, key, expires=timedelta(hours=24))
+        logger.info("MinIO upload success: bucket=%s key=%s size=%d", bucket, key, len(file_bytes))
+        return url
+    except S3Error as exc:
+        logger.error("MinIO upload failed for key=%s: %s", key, exc)
+        # Return a fallback key-based URL so the job doesn't fully fail
+        return f"/api/artifacts/{key}"
+
+
 async def _upload_to_minio(file_bytes: bytes, key: str, content_type: str) -> str:
-    """
-    Upload file to MinIO and return presigned URL.
-    Uses the Node backend's internal storage service via HTTP callback.
-    Falls back to a placeholder URL if storage isn't available yet.
-    """
-    # TODO Sprint 2: implement direct MinIO upload using minio-py
-    # For now, return a placeholder URL — Node will handle actual MinIO upload
-    # when it receives the job-update callback with the file content encoded.
-    logger.warning("MinIO upload not yet implemented — returning placeholder URL")
-    return f"https://storage.presales.local/{key}"
+    """Async wrapper around synchronous MinIO upload."""
+    import asyncio
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _upload_to_minio_sync, file_bytes, key, content_type)
 
 
 async def run(payload: dict[str, Any], engagement_id: Optional[str]) -> dict[str, Any]:
