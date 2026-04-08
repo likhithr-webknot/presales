@@ -107,3 +107,20 @@ Key fixes applied:
 - TypeScript: 0 errors
 
 *Updated by: Goku | 2026-04-08*
+
+---
+
+## Sprint 8 — Admin & Ops Panel
+
+**WARDEN: PENDING ⏳** *(review required before Sprint 9)*
+**SENTINEL: PENDING ⏳**
+**AUTHORIZED: NO ❌** *(pending Warden review)*
+
+### What was built
+- **Backend** `admin.routes.ts`: 13 endpoints — user management, KB CRUD, system config, email test, SOW template upload/manage
+- **Schema**: `AuditLog.engagementId` made nullable for system-level events; Prisma client regenerated
+- **Frontend** Admin page: 6-tab panel (Engagements, Users & Roles, Knowledge Base, System Config, Email, SOW Templates)
+- **API layer**: `adminApi` + typed interfaces (`KBEntry`, `SystemConfigItem`, `AdminUser`)
+- TypeScript: 0 errors
+
+*Updated by: Goku | 2026-04-08*
