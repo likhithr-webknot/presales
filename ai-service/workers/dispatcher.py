@@ -88,14 +88,17 @@ async def _run_worker(
     from workers.research import run as research_run
     from workers.context_manager import run as context_run
     from workers.packaging import run as packaging_run
+    from workers.narrative import run as narrative_run
+    from workers.technical import run as technical_run
+    from workers.scorer import run as scorer_run
 
     worker_map = {
         "research":  research_run,   # Sprint 2 ✅
         "context":   context_run,    # Sprint 2 ✅
         "packaging": packaging_run,  # Sprint 2 ✅
-        # "narrative": narrative_run,   # Sprint 3
-        # "technical": technical_run,   # Sprint 3
-        # "scoring":   scorer_run,      # Sprint 3
+        "narrative": narrative_run,  # Sprint 3 ✅
+        "technical": technical_run,  # Sprint 3 ✅
+        "scoring":   scorer_run,     # Sprint 3 ✅
         # "casestudy": case_study_run,  # Sprint 4
         # "sow":       sow_run,         # Sprint 5
         # All other types fall through to stub_run

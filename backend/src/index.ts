@@ -5,6 +5,7 @@ import { initBuckets } from './config/storage'
 import { initWebSocket } from './services/websocket/server'
 import { registerAllStubWorkers } from './jobs/workers/stub-worker.factory'
 import { initAdapters } from './adapters/factory'
+import { startGateReminderScheduler } from './jobs/gate-reminder.scheduler'
 import { env } from './config/env'
 
 async function main() {
@@ -23,6 +24,9 @@ async function main() {
 
   // Register BullMQ stub workers (replaced by real workers in later sprints)
   registerAllStubWorkers()
+
+  // Start gate reminder scheduler (checks for stale pending gates every hour)
+  startGateReminderScheduler()
 
   httpServer.listen(env.PORT, () => {
     console.log(`\n✅ Server running on http://localhost:${env.PORT}`)

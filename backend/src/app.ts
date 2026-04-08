@@ -11,6 +11,7 @@ import { uploadRouter } from './routes/upload.routes'
 import { jobRouter } from './routes/job.routes'
 import { internalRouter } from './routes/internal.routes'
 import { meetmindsRouter } from './routes/meetminds.routes'
+import { gateRouter } from './routes/gate.routes'
 import { errorMiddleware } from './middleware/error.middleware'
 
 export function createApp() {
@@ -39,6 +40,7 @@ export function createApp() {
   // Internal routes — AI service callbacks (protected by x-ai-internal-secret)
   app.use('/api/internal', internalRouter)
   app.use('/api/engagements/:id/meetminds-reference', meetmindsRouter)
+  app.use('/api/engagements/:id/gates', gateRouter)
 
   // Global error handler — must be last
   app.use(errorMiddleware)
