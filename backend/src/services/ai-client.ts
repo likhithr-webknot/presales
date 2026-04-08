@@ -100,11 +100,12 @@ export async function parseIntake(
   existingContext?: Partial<ParsedFields>,
   engagementId?: string
 ): Promise<IntakeParseResponse> {
+  // 60s timeout: LLM call on cold start can take 30-60s
   return callAIService<IntakeParseResponse>('/intake/parse', {
     message,
     existing_context: existingContext ?? null,
     engagement_id: engagementId ?? null,
-  })
+  }, 60_000)
 }
 
 /**
@@ -115,10 +116,11 @@ export async function detectCollateral(
   message: string,
   engagementId?: string
 ): Promise<CollateralDetectResponse> {
+  // 60s timeout: rule-based is instant but LLM fallback can be slow on cold start
   return callAIService<CollateralDetectResponse>('/collateral/detect', {
     message,
     engagement_id: engagementId ?? null,
-  })
+  }, 60_000)
 }
 
 /**

@@ -105,16 +105,41 @@ export async function createNewVersion(
   })
   const nextVersion = (latest?.version ?? 0) + 1
 
-  const newVersion = await prisma.engagementVersion.create({
-    data: {
-      engagementId,
-      version: nextVersion,
-      triggeredByUserId: userId,
-      changeReason,
-      artifacts: artifacts as Prisma.InputJsonValue,
-      isLatest: true,
-    },
-  })
+  // I-06 fix: wrap in try/catch to handle the @@unique([engagementId, version])
+  // constraint violation if two requests race to create the same version number.
+  let newVersion
+  try {
+    newVersion = await prisma.engagementVersion.create({
+      data: {
+        engagementId,
+        version: nextVersion,
+        triggeredByUserId: userId,
+        changeReason,
+        artifacts: artifacts as Prisma.InputJsonValue,
+        isLatest: true,
+      },
+    })
+  } catch (err: any) {
+    if (err?.code === 'P2002') {
+      // Unique constraint violation — retry with incremented version
+      const retryLatest = await prisma.engagementVersion.findFirst({
+        where: { engagementId },
+        orderBy: { version: 'desc' },
+      })
+      newVersion = await prisma.engagementVersion.create({
+        data: {
+          engagementId,
+          version: (retryLatest?.version ?? 0) + 1,
+          triggeredByUserId: userId,
+          changeReason,
+          artifacts: artifacts as Prisma.InputJsonValue,
+          isLatest: true,
+        },
+      })
+    } else {
+      throw err
+    }
+  }
 
   // Enqueue diff generation if there's a previous version
   if (latest) {

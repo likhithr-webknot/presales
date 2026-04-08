@@ -7,10 +7,37 @@ from typing import Any
 
 import httpx
 
+# ── Worker imports (module level — fail fast on startup if a worker has a syntax error) ──
+from workers.research import run as research_run
+from workers.context_manager import run as context_run
+from workers.packaging import run as packaging_run
+from workers.narrative import run as narrative_run
+from workers.technical import run as technical_run
+from workers.scorer import run as scorer_run
+from workers.case_study import run as case_study_run
+from workers.diffgen import run as diffgen_run
+from workers.sow_maker import run as sow_run
+from workers.stub_worker import run as stub_run
+
 from config import get_settings
 from schemas.job import DispatchRequest, JobCallback, JobStatus
 
 logger = logging.getLogger(__name__)
+
+# Maps job type string → worker coroutine
+WORKER_MAP = {
+    "research":  research_run,   # Sprint 2 ✅
+    "context":   context_run,    # Sprint 2 ✅
+    "packaging": packaging_run,  # Sprint 2 ✅
+    "narrative": narrative_run,  # Sprint 3 ✅
+    "technical": technical_run,  # Sprint 3 ✅
+    "scoring":   scorer_run,     # Sprint 3 ✅
+    "casestudy": case_study_run, # Sprint 4 ✅
+    "diffgen":   diffgen_run,    # Sprint 4 ✅
+    "sow":       sow_run,        # Sprint 5 ✅
+    # "pricing":  pricing_run,   # Sprint 9 — external system not built yet
+    # All other types fall through to stub_run
+}
 
 
 async def _send_callback(http_client: httpx.AsyncClient, callback: JobCallback) -> None:
@@ -31,9 +58,6 @@ async def _send_callback(http_client: httpx.AsyncClient, callback: JobCallback) 
         logger.error("Failed to reach Node callback for job %s: %s", callback.job_id, exc)
 
 
-# ── Individual worker imports ─────────────────────────────────────────────────
-# Real workers are imported here. Stubs are used for unimplemented types.
-
 async def _dispatch_to_worker(
     request: DispatchRequest,
     http_client: httpx.AsyncClient,
@@ -50,7 +74,8 @@ async def _dispatch_to_worker(
     ))
 
     try:
-        output = await _run_worker(request, http_client)
+        worker = WORKER_MAP.get(job_type, stub_run)
+        output = await worker(request.payload, request.engagement_id)
 
         await _send_callback(http_client, JobCallback(
             job_id=job_id,
@@ -67,49 +92,6 @@ async def _dispatch_to_worker(
             error=str(exc),
             agent_name=job_type,
         ))
-
-
-async def _run_worker(
-    request: DispatchRequest,
-    http_client: httpx.AsyncClient,
-) -> dict[str, Any]:
-    """
-    Route to the appropriate worker. Add imports here as real agents are built.
-    """
-    from workers.stub_worker import run as stub_run
-
-    job_type = request.job_type.value
-
-    # Sprint 2+ — replace stub imports with real worker imports as they're built:
-    # from workers.research import run as research_run
-    # from workers.context_manager import run as context_run
-    # etc.
-
-    from workers.research import run as research_run
-    from workers.context_manager import run as context_run
-    from workers.packaging import run as packaging_run
-    from workers.narrative import run as narrative_run
-    from workers.technical import run as technical_run
-    from workers.scorer import run as scorer_run
-    from workers.case_study import run as case_study_run
-    from workers.diffgen import run as diffgen_run
-    from workers.sow_maker import run as sow_run
-
-    worker_map = {
-        "research":  research_run,   # Sprint 2 ✅
-        "context":   context_run,    # Sprint 2 ✅
-        "packaging": packaging_run,  # Sprint 2 ✅
-        "narrative": narrative_run,  # Sprint 3 ✅
-        "technical": technical_run,  # Sprint 3 ✅
-        "scoring":   scorer_run,     # Sprint 3 ✅
-        "casestudy": case_study_run, # Sprint 4 ✅
-        "diffgen":   diffgen_run,    # Sprint 4 ✅
-        "sow":       sow_run,          # Sprint 5 ✅
-        # All other types fall through to stub_run
-    }
-
-    worker = worker_map.get(job_type, stub_run)
-    return await worker(request.payload, request.engagement_id)
 
 
 async def dispatch(request: DispatchRequest, http_client: httpx.AsyncClient) -> None:

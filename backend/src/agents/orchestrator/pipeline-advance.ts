@@ -57,8 +57,24 @@ export async function tryAdvancePipeline(
 
   if (!allComplete) return // still waiting on parallel jobs
 
-  // All parallel jobs in this step are done — dispatch the next step
+  // B-02 fix: guard against duplicate dispatch (race condition when parallel jobs
+  // complete simultaneously — both trigger tryAdvancePipeline within ms of each other)
   const nextStep = pipeline[stepIndex + 1]
+  const alreadyDispatched = await prisma.agentJob.findFirst({
+    where: {
+      engagementId: engagement.id,
+      agentName: { in: nextStep.agents as AgentName[] },
+      status: { in: [JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.COMPLETED] },
+      // Only check jobs created AFTER the current step started (not from prior pipeline runs)
+      createdAt: { gte: currentStepJobs[0]?.createdAt ?? new Date(0) },
+    },
+  })
+  if (alreadyDispatched) {
+    console.log('[pipeline-advance] Next step already dispatched for', engagement.id, '— skipping duplicate')
+    return
+  }
+
+  // All parallel jobs in this step are done and no duplicate — dispatch next step
   await dispatchNextStep(nextStep, engagement, currentStepJobs)
 }
 

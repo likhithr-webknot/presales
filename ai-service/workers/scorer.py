@@ -93,7 +93,7 @@ async def _score_with_gemini(prompt: str, settings) -> dict[str, dict]:
         genai.configure(api_key=settings.gemini_api_key)
         model = genai.GenerativeModel("gemini-1.5-pro")
         full_prompt = f"{SCORING_SYSTEM_PROMPT}\n\n{prompt}"
-        response = await asyncio.get_event_loop().run_in_executor(
+        response = await asyncio.get_running_loop().run_in_executor(  # get_event_loop() deprecated in 3.10+
             None, lambda: model.generate_content(full_prompt)
         )
         raw = response.text.strip()

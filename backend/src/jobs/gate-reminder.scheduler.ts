@@ -21,11 +21,18 @@ async function checkPendingGates(): Promise<void> {
     const reminderHours = parseInt(cfg?.value ?? '24', 10)
     const cutoff = new Date(Date.now() - reminderHours * 60 * 60 * 1000)
 
+    // M-03 fix: cap at 3 reminders per gate to avoid reminder spam on very stale gates
+    const maxReminders = parseInt(
+      (await prisma.systemConfig.findUnique({ where: { key: 'max_gate_reminders' } }))?.value ?? '3'
+    )
+
     // Find all gate approvals that are still PENDING and older than threshold
+    // but not older than (reminderHours * maxReminders) hours — beyond that, go quiet
+    const maxCutoff = new Date(Date.now() - reminderHours * maxReminders * 60 * 60 * 1000)
     const staleGates = await prisma.gateApproval.findMany({
       where: {
         status:    GateStatus.PENDING,
-        createdAt: { lt: cutoff },
+        createdAt: { lt: cutoff, gt: maxCutoff },
       },
       include: {
         engagement: { select: { clientName: true } },

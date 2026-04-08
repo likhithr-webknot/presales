@@ -183,8 +183,7 @@ async def run(payload: dict[str, Any], engagement_id: Optional[str]) -> dict[str
             "is_last": section_key == SECTION_ORDER[-1],
         }
 
-    # Full mode — generate all sections (used for initial preview / packaging)
-    import asyncio
+    # Full mode — generate all sections sequentially (used for initial preview / packaging)
     results = {}
     revision_count = 0
 

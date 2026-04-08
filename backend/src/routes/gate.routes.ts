@@ -85,9 +85,13 @@ gateRouter.post('/:gateNumber/submit', async (req: Request, res: Response, next:
     })
 
     // Load assigned reviewers for this engagement (all REVIEWER-role participants)
+    // MVP: fetches all REVIEWER-role users in the system (intentional for small team).
+    // Sprint 8 admin panel should support per-engagement reviewer assignment.
+    // take:10 safety cap to prevent accidental mass approval creation.
     const reviewers = await prisma.user.findMany({
       where: { roles: { some: { role: RoleType.REVIEWER } } },
       select: { id: true, email: true, name: true },
+      take: 10,
     })
 
     const minReviewerCount = parseInt(

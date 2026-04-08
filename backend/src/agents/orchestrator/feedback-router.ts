@@ -54,7 +54,8 @@ export async function routeFeedback(
     where: { id: engagementId },
     include: {
       versions: { where: { isLatest: true }, take: 1 },
-      agentJobs: { where: { status: JobStatus.COMPLETED }, orderBy: { completedAt: 'desc' } },
+      // I-07: orderBy completedAt desc ensures map population overwrites with LATEST output per agent
+      agentJobs: { where: { status: JobStatus.COMPLETED }, orderBy: { completedAt: 'asc' } },
     },
   })
 
@@ -65,11 +66,11 @@ export async function routeFeedback(
 
   const routedAgent = targetAgent ?? AgentName.PACKAGING_AGENT // safe fallback
 
-  // Build payload from latest completed jobs' outputs
+  // Build payload — iterate ASC so later (more recent) outputs overwrite earlier ones per agent
   const jobOutputs: Record<string, unknown> = {}
   for (const job of engagement.agentJobs) {
     if (job.output) {
-      jobOutputs[job.agentName] = job.output
+      jobOutputs[job.agentName] = job.output // latest wins due to ASC ordering
     }
   }
 

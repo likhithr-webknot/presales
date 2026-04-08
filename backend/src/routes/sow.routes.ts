@@ -219,12 +219,12 @@ sowRouter.post('/approve',
     try {
       const engagementId = req.params.id
       const userId       = req.user!.id
-      const userRoles    = req.user!.roles as string[]
+      const userRoles = req.user!.roles  // RoleType[] from AuthUser
 
       const { feedback } = z.object({ feedback: z.string().optional() }).parse(req.body)
 
-      // Determine which approval this is
-      const gateNumber: GateNumber = userRoles.includes('DM')
+      // Determine which approval this is based on the user's actual role
+      const gateNumber: GateNumber = (userRoles as string[]).includes(RoleType.DM)
         ? GateNumber.SOW_DM
         : GateNumber.SOW_AM
 

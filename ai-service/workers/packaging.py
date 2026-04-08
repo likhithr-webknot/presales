@@ -235,7 +235,7 @@ def _upload_to_minio_sync(file_bytes: bytes, key: str, content_type: str) -> str
 async def _upload_to_minio(file_bytes: bytes, key: str, content_type: str) -> str:
     """Async wrapper around synchronous MinIO upload."""
     import asyncio
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()  # get_event_loop() deprecated in Python 3.10+
     return await loop.run_in_executor(None, _upload_to_minio_sync, file_bytes, key, content_type)
 
 

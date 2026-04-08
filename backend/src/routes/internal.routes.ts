@@ -5,7 +5,7 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
-import { JobStatus, Prisma } from '@prisma/client'
+import { AuditAction, JobStatus, Prisma } from '@prisma/client'
 import { wsEvents } from '../services/websocket/events'
 import { writeAuditLog } from '../services/audit/logger'
 import { env } from '../config/env'
@@ -112,11 +112,14 @@ internalRouter.post('/job-update', async (req: Request, res: Response): Promise<
       })
     }
 
-    // Audit log
+    // Audit log — use correct action per status
+    const auditAction = status === 'COMPLETED' ? AuditAction.AGENT_COMPLETED
+      : status === 'FAILED' ? AuditAction.AGENT_FAILED
+      : AuditAction.AGENT_INVOKED
     await writeAuditLog({
       engagementId,
       userId:   'ai-service',
-      action:   'AGENT_INVOKED' as any,
+      action:   auditAction,
       detail:   { jobId: job_id, status, agent: agent_name, error: error ?? undefined },
     })
 
@@ -125,6 +128,24 @@ internalRouter.post('/job-update', async (req: Request, res: Response): Promise<
       tryAdvancePipeline(job_id, engagementId).catch((err) => {
         console.error('[internal/job-update] Pipeline advance failed:', err)
       })
+
+      // B-03 fix: write compliance matrix back to GateApproval records when scoring completes
+      if (output && job.agentName === 'COMPLIANCE_SCORER') {
+        const gateNumber = (job.input as any)?.gateNumber as string | undefined
+        if (gateNumber) {
+          await prisma.gateApproval.updateMany({
+            where: { engagementId, gateNumber: gateNumber as any },
+            data: { complianceMatrix: output as Prisma.InputJsonValue },
+          }).catch((e) => console.warn('[internal] complianceMatrix update failed:', e))
+
+          // Also re-fire gate_ready WS event with the actual compliance matrix now available
+          wsEvents.gateReady(engagementId, {
+            gateNumber,
+            complianceMatrix: output,
+            reviewerEmails: [], // already sent when gate was submitted
+          })
+        }
+      }
 
       // If this was a diffgen job, write the summary back to the EngagementVersion
       if (output && typeof output === 'object' && 'summary' in output) {
