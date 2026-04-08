@@ -1,0 +1,104 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: presales_postgres
+    environment:
+      POSTGRES_USER: presales
+      POSTGRES_PASSWORD: presales
+      POSTGRES_DB: presales
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U presales']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: presales_redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: presales_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Python AI Service ────────────────────────────────────────────────────────
+  # Handles ALL LLM logic: intake parsing, collateral detection, all agents.
+  # Node backend calls this service via HTTP; Python calls back when jobs complete.
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: presales_ai_service
+    env_file: .env
+    ports:
+      - '8001:8000'   # Exposed on 8001 locally; internally port 8000
+    environment:
+      - BACKEND_URL=http://backend:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:8000/health']
+      interval: 15s
+      timeout: 10s
+      start_period: 20s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Node.js Backend ──────────────────────────────────────────────────────────
+  # API layer, auth, state machine, DB, WebSocket. NO LLM calls.
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: presales_backend
+    env_file: .env
+    ports:
+      - '3000:3000'
+    environment:
+      - AI_SERVICE_URL=http://ai-service:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

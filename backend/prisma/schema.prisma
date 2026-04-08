@@ -1,0 +1,284 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users & Auth ─────────────────────────────────────────────────────────────
+
+model User {
+  id          String     @id @default(uuid())
+  email       String     @unique
+  name        String
+  avatarUrl   String?
+  googleId    String     @unique
+  roles       UserRole[]
+  engagements Engagement[]
+  approvals   GateApproval[]
+  auditLogs   AuditLog[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+enum RoleType {
+  AM
+  DM
+  SALES_HEAD
+  REVIEWER
+  ADMIN
+}
+
+model UserRole {
+  id        String   @id @default(uuid())
+  userId    String
+  role      RoleType
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, role])
+}
+
+// ─── Engagements ──────────────────────────────────────────────────────────────
+
+enum EngagementStage {
+  STAGE_1
+  STAGE_2
+  STAGE_3
+  STAGE_4
+  STAGE_5
+}
+
+enum EngagementStatus {
+  INITIATED
+  RESEARCH_COMPLETE
+  PROPOSAL_IN_PROGRESS
+  UNDER_REVIEW
+  APPROVED
+  DELIVERED
+  BLOCKED
+  CANCELLED
+}
+
+enum CollateralType {
+  FIRST_MEETING_DECK
+  POST_DISCOVERY_DECK
+  TECHNICAL_PROPOSAL
+  PROPOSAL_DEFENSE_DECK
+  STATEMENT_OF_WORK
+  COMMERCIAL_ESTIMATION
+  CASE_STUDY_DOCUMENT
+  MARKETING_CONTENT
+}
+
+model Engagement {
+  id                 String              @id @default(uuid())
+  clientName         String
+  domain             String
+  opportunityContext String?
+  contactDetails     Json?
+  stage              EngagementStage
+  status             EngagementStatus    @default(INITIATED)
+  collateralType     CollateralType
+  currentBlocker     String?
+  createdById        String
+  createdBy          User                @relation(fields: [createdById], references: [id])
+  versions           EngagementVersion[]
+  gateApprovals      GateApproval[]
+  agentJobs          AgentJob[]
+  reviewers          EngagementReviewer[]
+  uploads            EngagementUpload[]
+  auditLogs          AuditLog[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+}
+
+model EngagementVersion {
+  id                  String     @id @default(uuid())
+  engagementId        String
+  engagement          Engagement @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  version             Int
+  triggeredByUserId   String?
+  changeReason        String?
+  diffSummary         String?
+  artifacts           Json
+  isLatest            Boolean    @default(true)
+  createdAt           DateTime   @default(now())
+
+  @@unique([engagementId, version])
+}
+
+model EngagementReviewer {
+  id           String     @id @default(uuid())
+  engagementId String
+  engagement   Engagement @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  reviewerId   String
+  gateNumber   Int?
+  isAlternate  Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+}
+
+// ─── Gate Approvals ───────────────────────────────────────────────────────────
+
+enum GateStatus {
+  PENDING
+  APPROVED
+  APPROVED_WITH_FEEDBACK
+  REJECTED
+}
+
+enum GateNumber {
+  GATE_1
+  GATE_2
+  GATE_3
+  DEFENSE_GATE
+  SOW_AM
+  SOW_DM
+}
+
+model GateApproval {
+  id               String     @id @default(uuid())
+  engagementId     String
+  engagement       Engagement @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  gateNumber       GateNumber
+  reviewerId       String
+  reviewer         User       @relation(fields: [reviewerId], references: [id])
+  status           GateStatus @default(PENDING)
+  feedback         String?
+  complianceMatrix Json?
+  approvedAt       DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+}
+
+// ─── Agent Jobs ───────────────────────────────────────────────────────────────
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum AgentName {
+  ORCHESTRATOR
+  SECONDARY_RESEARCH
+  CONTEXT_MANAGER
+  MEETMINDS_ADAPTER
+  PRICING_ADAPTER
+  CASE_STUDY_MAKER
+  SOW_MAKER
+  PROPOSAL_MAKER
+  NARRATIVE_AGENT
+  TECHNICAL_SOLUTION
+  PACKAGING_AGENT
+  COMPLIANCE_SCORER
+}
+
+model AgentJob {
+  id           String     @id @default(uuid())
+  engagementId String
+  engagement   Engagement @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  agentName    AgentName
+  bullmqJobId  String?
+  status       JobStatus  @default(QUEUED)
+  input        Json
+  output       Json?
+  error        String?
+  retryCount   Int        @default(0)
+  parentJobId  String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime   @default(now())
+}
+
+// ─── Uploads ──────────────────────────────────────────────────────────────────
+
+enum UploadType {
+  RFP
+  REQUIREMENT_DOC
+  QA_SPREADSHEET
+  PREVIOUS_PROPOSAL
+  CLIENT_BRIEF
+  SOW_TEMPLATE
+  OTHER
+}
+
+model EngagementUpload {
+  id             String     @id @default(uuid())
+  engagementId   String
+  engagement     Engagement @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  uploadType     UploadType
+  fileName       String
+  mimeType       String
+  storageKey     String
+  parsedContent  Json?
+  uploadedById   String
+  createdAt      DateTime   @default(now())
+}
+
+// ─── Knowledge Base ───────────────────────────────────────────────────────────
+
+enum KBEntryType {
+  PROJECT
+  CAPABILITY
+  CASE_STUDY
+  TEAM_PROFILE
+  DIFFERENTIATOR
+  WEDGE_OFFERING
+  MARKETING_ASSET
+}
+
+model KnowledgeBaseEntry {
+  id        String      @id @default(uuid())
+  type      KBEntryType
+  title     String
+  content   String
+  metadata  Json
+  // embedding vector(1536) added via raw SQL migration (pgvector)
+  isActive  Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+// ─── System Config ────────────────────────────────────────────────────────────
+
+model SystemConfig {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+
+enum AuditAction {
+  ENGAGEMENT_CREATED
+  STAGE_ADVANCED
+  AGENT_INVOKED
+  AGENT_COMPLETED
+  AGENT_FAILED
+  GATE_SENT_FOR_REVIEW
+  GATE_APPROVED
+  GATE_REJECTED
+  GATE_OVERRIDDEN
+  REVISION_REQUESTED
+  VERSION_CREATED
+  ARTIFACT_DOWNLOADED
+  SOW_SECTION_CONFIRMED
+  OVERRIDE_APPLIED
+}
+
+model AuditLog {
+  id           String      @id @default(uuid())
+  engagementId String
+  engagement   Engagement  @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  userId       String?
+  user         User?       @relation(fields: [userId], references: [id])
+  action       AuditAction
+  detail       Json?
+  createdAt    DateTime    @default(now())
+}
