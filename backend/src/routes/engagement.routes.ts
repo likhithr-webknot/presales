@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { z } from 'zod'
-import { CollateralType, EngagementStage, EngagementStatus, Prisma, RoleType } from '@prisma/client'
+import { AuditAction, CollateralType, EngagementStage, EngagementStatus, Prisma, RoleType } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { authMiddleware, AuthUser } from '../middleware/auth.middleware'
 import { requireRole } from '../middleware/rbac.middleware'
@@ -10,6 +10,7 @@ import { handleMessage } from '../agents/orchestrator/index'
 import { advanceStage } from '../agents/orchestrator/state-machine'
 import { buildCarryForwardContext } from '../agents/orchestrator/context-builder'
 import { routeFeedback } from '../agents/orchestrator/feedback-router'
+import { detectAndApplyCascade } from '../services/cascade/detector'
 
 export const engagementRouter = Router()
 engagementRouter.use(authMiddleware)
@@ -108,17 +109,44 @@ engagementRouter.patch('/:id', requireEngagementAccess, async (req: Request, res
       clientName:         z.string().optional(),
       domain:             z.string().optional(),
       opportunityContext: z.string().optional(),
+      collateralType:     z.nativeEnum(CollateralType).optional(),
       contactDetails:     z.record(z.unknown()).optional(),
     })
     const body = patchSchema.parse(req.body)
-    const engagement = await prisma.engagement.update({
+    const userId = (req.user as AuthUser).id
+
+    // Snapshot current state for cascade detection
+    const before = await prisma.engagement.findUnique({
+      where: { id: req.params.id },
+      select: { clientName: true, domain: true, collateralType: true, opportunityContext: true },
+    })
+    if (!before) { res.status(404).json({ error: 'Engagement not found' }); return }
+
+    const updated = await prisma.engagement.update({
       where: { id: req.params.id },
       data: {
         ...body,
         contactDetails: body.contactDetails as Prisma.InputJsonValue | undefined,
       },
     })
-    res.json(engagement)
+
+    // Detect cascading impact of the change
+    const cascadeResult = await detectAndApplyCascade(
+      req.params.id,
+      { clientName: before.clientName, domain: before.domain, collateralType: before.collateralType, opportunityContext: before.opportunityContext },
+      { clientName: updated.clientName, domain: updated.domain, collateralType: updated.collateralType, opportunityContext: updated.opportunityContext },
+      userId,
+    )
+
+    // Audit the update
+    await writeAuditLog({
+      engagementId: req.params.id,
+      userId,
+      action: AuditAction.ENGAGEMENT_UPDATED,
+      detail: { changedFields: Object.keys(body), cascade: cascadeResult.hasCascade },
+    })
+
+    res.json({ engagement: updated, cascade: cascadeResult })
   } catch (err) { next(err) }
 })
 

@@ -51,8 +51,15 @@ export const wsEvents = {
 
   cascadeDetected: (
     engagementId: string,
-    d: { triggerGate: string; affectedGate: string; reason: string; requiresReapproval: boolean; canOverride: boolean }
-  ) => emit(engagementId, 'cascade_detected', d),
+    d: {
+      changedFields: string[]
+      invalidatedAgents: string[]
+      cancelledJobIds: string[]
+      staleVersionIds: string[]
+      shouldRestartPipeline: boolean
+      message: string
+    }
+  ) => emit(engagementId, 'cascade_detected', { ...d, timestamp: new Date().toISOString() }),
 
   sowSectionReady: (
     engagementId: string,

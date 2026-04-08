@@ -5,6 +5,7 @@
  */
 import { Router, Request, Response, NextFunction } from 'express'
 import { z } from 'zod'
+import { AuditAction } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { authMiddleware } from '../middleware/auth.middleware'
 import { requireEngagementAccess } from '../middleware/engagement-access'
@@ -72,7 +73,7 @@ async function _auditDownload(engagementId: string, userId: string, fileKey: str
   await writeAuditLog({
     engagementId,
     userId,
-    action: 'AGENT_COMPLETED' as any,
-    detail: { action: 'ARTIFACT_DOWNLOADED', fileKey, format, downloadedAt: new Date().toISOString() },
+    action: AuditAction.ARTIFACT_DOWNLOADED,
+    detail: { fileKey, format, downloadedAt: new Date().toISOString() },
   }).catch(() => {}) // never fail a download because of audit log
 }
