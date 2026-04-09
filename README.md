@@ -4,214 +4,193 @@ Webknot's internal AI-driven presales lifecycle platform. AMs describe a client 
 
 ---
 
-## Running Locally for Demo
+## Prerequisites
 
-### What you need
-- Docker + Docker Compose (for Postgres, Redis, MinIO)
-- Node.js 20+
-- Python 3.11+
-- API keys: OpenAI, Anthropic, Gemini, Tavily
-- Google OAuth credentials (for SSO login)
+| Tool | Notes |
+|------|--------|
+| **Docker + Docker Compose** | Postgres (pgvector), Redis, MinIO — required for local data layer |
+| **Node.js 20+** | `backend/` and `frontend/` |
+| **Python 3.11+** | `ai-service/` (venv + pip, or Poetry) |
+| **API keys** | OpenAI, Anthropic, Gemini; Tavily (or Brave) if you use web search |
+| **Google OAuth** | For SSO — [Google Cloud Console](https://console.cloud.google.com/) |
 
 ---
 
-### Step 1 — Clone & copy env
+## Environment variables
+
+From the **repository root**:
 
 ```bash
-cd projects/presales-orchestrator
 cp .env.example .env
 ```
 
-Edit `.env` and fill in:
+Edit `.env` and set at least:
 
-```env
-# Required API keys
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-GEMINI_API_KEY=AIza...
-TAVILY_API_KEY=tvly-...
+- **LLM:** `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`
+- **Web search (if used):** `TAVILY_API_KEY` when `SEARCH_PROVIDER=tavily` (see `.env.example`)
+- **Google SSO:** `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and redirect `GOOGLE_CALLBACK_URL=http://localhost:3000/auth/google/callback`
+- **Secrets:** `JWT_SECRET` and `AI_INTERNAL_SECRET` — each **32+ characters**; `AI_INTERNAL_SECRET` must match in both Node and Python
+- **URLs:** `FRONTEND_URL=http://localhost:5173`, `API_BASE_URL=http://localhost:3000/api`
+- **Email:** set `EMAIL_ENABLED=false` in dev if you do not want SMTP (still provide placeholder vars if the app validates them — see `.env.example`)
 
-# Google SSO (create at console.cloud.google.com)
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-GOOGLE_CALLBACK_URL=http://localhost:3000/auth/google/callback
+**`AI_SERVICE_URL`** must point at wherever the Python service listens:
 
-# JWT — generate any 32+ char random string
-JWT_SECRET=some-long-random-string-at-least-32-chars
+| Setup | Typical value |
+|--------|----------------|
+| Python on host, port **8001** (matches examples below) | `http://localhost:8001` |
+| Python on host, port **8000** | `http://localhost:8000` |
+| Full Docker stack (Compose maps container `8000` → host **8001**) | `http://localhost:8001` from the host, or `http://ai-service:8000` inside Compose |
 
-# Internal secret — shared between Node and Python
-AI_INTERNAL_SECRET=another-long-random-string-at-least-32-chars
+For Python calling back into Node on your machine, set **`BACKEND_URL=http://localhost:3000`** in `.env` (Compose overrides this for containers).
 
-# Frontend URL (for CORS)
-FRONTEND_URL=http://localhost:5173
-
-# Local AI service URL (running outside Docker)
-AI_SERVICE_URL=http://localhost:8001
-
-# Email — optional for demo (set EMAIL_ENABLED=false to skip)
-EMAIL_ENABLED=false
-EMAIL_SMTP_HOST=smtp.gmail.com
-EMAIL_SMTP_PORT=587
-EMAIL_SMTP_USER=your@email.com
-EMAIL_SMTP_PASS=your-app-password
-```
+The AI service loads **`ai-service/.env` first**, then the **repo root `.env`**, so you usually only maintain one file at the root.
 
 ---
 
-### Step 2 — Start infrastructure (Docker)
+## Option A — Infra in Docker, apps on the host (recommended for development)
+
+### 1. Start Postgres, Redis, MinIO
 
 ```bash
-# Start only Postgres, Redis, MinIO (not the full app containers)
 docker compose up postgres redis minio -d
 ```
 
-Wait ~10s for them to be healthy. Then verify:
+Wait until they are healthy: `docker compose ps`.
 
-```bash
-docker compose ps
-# All three should show "healthy"
-```
+### 2. Backend (API + Prisma)
 
----
-
-### Step 3 — Backend setup
+**The Prisma schema lives only under `backend/`.** Run all Prisma commands from there — not from `frontend/`.
 
 ```bash
 cd backend
 npm install
-
-# Run DB migrations
-npx prisma migrate dev --name init
-
-# Seed the database (creates admin user + system config defaults)
+npx prisma migrate dev
 npm run db:seed
-
-# Start the backend
 npm run dev
-# → Running on http://localhost:3000
 ```
 
----
+Backend: **http://localhost:3000**
 
-### Step 4 — Python AI Service setup
+### 3. AI service (Python)
+
+Using **venv + pip** (same approach as `scripts/dev-start.sh`):
 
 ```bash
 cd ai-service
-
-# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Start the service (reads .env from project root automatically)
 BACKEND_URL=http://localhost:3000 uvicorn main:app --host 0.0.0.0 --port 8001 --reload
-# → Running on http://localhost:8001
 ```
 
----
+Using **Poetry** instead:
 
-### Step 5 — Frontend setup
+```bash
+cd ai-service
+poetry install
+BACKEND_URL=http://localhost:3000 poetry run uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+```
+
+Ensure root `.env` has **`AI_SERVICE_URL=http://localhost:8001`** when using port **8001**.
+
+### 4. Frontend
 
 ```bash
 cd frontend
 npm install
 npm run dev
-# → Running on http://localhost:5173
 ```
 
----
+App: **http://localhost:5173** (Vite proxies `/api`, `/auth`, `/health` to the backend).
 
-### Step 6 — Open the app
+### 5. First login
 
-1. Navigate to **http://localhost:5173**
-2. Click **Sign in with Google**
-3. After first login, grant yourself ADMIN via the seed user OR run:
-   ```bash
-   cd backend
-   npx prisma studio
-   # Find your user in UserRole table, add role=ADMIN
-   ```
-4. You're in. Create an engagement, send a message, watch the agents run.
+1. Open **http://localhost:5173** and sign in with Google.
+2. Grant **ADMIN** (or other roles) via seed data or **Prisma Studio**: `cd backend && npx prisma studio` → `UserRole`.
 
 ---
 
-## One-command setup (recommended)
+## Option B — Docker for backend + AI + infra (frontend still on host)
+
+Compose starts Postgres, Redis, MinIO, **backend**, and **ai-service**. The **frontend is not** in Compose.
+
+```bash
+cp .env.example .env   # if you have not already
+# Fill .env; for Compose, backend gets AI_SERVICE_URL=http://ai-service:8000 from compose.yml
+docker compose up --build
+```
+
+Then in another terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+- API (through host port mapping): **http://localhost:3000**
+- AI service on host: **http://localhost:8001** (mapped from container `8000`)
+- Frontend: **http://localhost:5173**
+
+---
+
+## Automated setup script
+
+From the repo root:
 
 ```bash
 bash scripts/dev-start.sh
 ```
 
-This handles: Docker infra, DB migrations, seed, npm/pip installs.
-Then follow the printed instructions to start the 3 processes.
+This starts Docker infra, installs dependencies, runs migrations, generates Prisma client, seeds (best-effort), and prints commands to start backend, AI service, and frontend in separate terminals.
 
 ---
 
-## Quick Demo Flow
-
-1. **Dashboard** → New Engagement
-   - Client: "TechCorp India"
-   - Domain: "FinTech"
-   - Type: "First Meeting Deck"
-
-2. **Chat** → type: *"We need a first meeting deck for TechCorp India. They're a FinTech company looking to build a digital lending platform. Budget ~50L, timeline 6 months."*
-
-3. Watch the **Agent Feed** — Research + Context run in parallel, then Packaging fires automatically.
-
-4. When done — **Download** the PPTX from the top bar.
-
-5. Try the **Gates tab** — submit the artifact for Gate 1 review.
-
-6. **Admin panel** → Users & Roles → assign yourself REVIEWER → approve the gate.
-
----
-
-## Services at a Glance
+## Services at a glance
 
 | Service | URL | Notes |
-|---------|-----|-------|
+|---------|-----|--------|
 | Frontend | http://localhost:5173 | React + Vite |
-| Backend API | http://localhost:3000 | Express + Node |
-| Python AI Service | http://localhost:8001 | FastAPI |
-| MinIO Console | http://localhost:9001 | Credentials: minioadmin / minioadmin |
-| Prisma Studio | `npx prisma studio` in backend/ | DB explorer |
+| Backend API | http://localhost:3000 | Express + Prisma + BullMQ |
+| Python AI | http://localhost:8001 | FastAPI (or **8000** if you choose that port locally) |
+| MinIO console | http://localhost:9001 | `minioadmin` / `minioadmin` |
+| Prisma Studio | run from `backend/` | `npx prisma studio` |
 
 ---
 
 ## Troubleshooting
 
-**"AI service unreachable"** — Make sure Python service is running on :8001 and `AI_SERVICE_URL=http://localhost:8001` in `.env`
-
-**"Cannot connect to database"** — Check Docker containers: `docker compose ps`. Run `docker compose up postgres -d` if stopped.
-
-**"Google SSO redirect mismatch"** — In Google Cloud Console, add `http://localhost:3000/auth/google/callback` as an authorized redirect URI.
-
-**Prisma client out of date** — Run `cd backend && npx prisma generate` after any schema change.
-
-**Python import errors** — Make sure you're in the virtualenv: `source ai-service/.venv/bin/activate`
+| Issue | What to check |
+|--------|----------------|
+| **`Could not find Prisma Schema`** | You ran `npx prisma` from **`frontend/`**. Use **`cd backend`** then `npx prisma migrate dev` / `generate` / `studio`. |
+| **AI service validation errors (`openai_api_key`, `ai_internal_secret`)** | Root `.env` missing keys or AI service cannot see them. Keep keys in repo root `.env` or `ai-service/.env`. |
+| **AI service unreachable** | Python process running; `AI_SERVICE_URL` in `.env` matches the **host and port** uvicorn uses. |
+| **Database connection errors** | `docker compose ps` — Postgres up and healthy; `DATABASE_URL` uses `localhost:5432` when apps run on the host. |
+| **Google SSO redirect mismatch** | Authorized redirect URI: `http://localhost:3000/auth/google/callback`. |
+| **Prisma client out of date** | `cd backend && npx prisma generate` after schema changes. |
 
 ---
 
-## Project Structure
+## Quick demo flow
+
+1. **Dashboard** → New Engagement (e.g. client "TechCorp India", domain FinTech, type "First Meeting Deck").
+2. **Chat** — describe the opportunity; watch the **Agent Feed**.
+3. **Download** generated artifacts when ready.
+4. **Gates** — submit for review; assign **REVIEWER** in Admin and approve.
+
+---
+
+## Project structure
 
 ```
-presales-orchestrator/
+presales/
 ├── backend/              Node.js API (Express + Prisma + BullMQ)
-│   ├── src/routes/       All API routes
-│   ├── src/agents/       Orchestrator, pipeline, cascade
-│   ├── src/services/     AI client, audit, WebSocket, storage
-│   └── prisma/           Schema + migrations + seed
-├── ai-service/           Python FastAPI (all LLM logic)
-│   ├── workers/          10 real agent workers
-│   ├── routers/          HTTP endpoints
-│   └── schemas/          Pydantic models
-├── frontend/             React + Vite
-│   ├── src/pages/        Dashboard, Engagement, Admin, Login
-│   ├── src/components/   AgentFeed, GatePanel, etc.
-│   └── src/services/     API client, WebSocket
-├── docker-compose.yml    Infra services (Postgres, Redis, MinIO)
-├── .env.example          All required env vars
-├── INTERFACE.md          Full API contract (routes + WS events)
+│   └── prisma/           Schema, migrations, seed — Prisma CLI runs here
+├── ai-service/           Python FastAPI (LLM / agents)
+├── frontend/             React + Vite (no Prisma)
+├── docker-compose.yml    Postgres, Redis, MinIO; optional backend + ai-service
+├── .env.example          Documented environment variables
+├── scripts/dev-start.sh  Local infra + install + migrate helper
+├── INTERFACE.md          API contract (routes + WS events)
 └── CONTEXT.md            Project context for agents
 ```

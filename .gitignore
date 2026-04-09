@@ -4,3 +4,6 @@ frontend/node_modules/
 backend/dist/
 *.env
 .env.local
+__pycache__/
+.venv-test/
+poetry.lock

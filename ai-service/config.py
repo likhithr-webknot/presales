@@ -3,12 +3,28 @@ Configuration for the Presales AI Service.
 All settings are loaded from environment variables with strict validation on startup.
 """
 from functools import lru_cache
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_SERVICE_DIR = Path(__file__).resolve().parent
+_REPO_ROOT_ENV = _SERVICE_DIR.parent / ".env"
+_LOCAL_ENV = _SERVICE_DIR / ".env"
+
+
+def _dotenv_files() -> tuple[str | Path, ...]:
+    """Prefer ai-service/.env, then repo-root .env (so `uvicorn` from ai-service/ still finds keys)."""
+    files: list[Path] = []
+    if _LOCAL_ENV.is_file():
+        files.append(_LOCAL_ENV)
+    if _REPO_ROOT_ENV.is_file():
+        files.append(_REPO_ROOT_ENV)
+    return tuple(files) if files else (".env",)
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_dotenv_files(),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
