@@ -128,7 +128,7 @@ export const authApi = {
 // ── Engagements ───────────────────────────────────────────────────────────────
 
 export const engagementsApi = {
-  list: () => api.get<Engagement[]>('/api/engagements').then(r => r.data),
+  list: () => api.get<{data: Engagement[], total: number}>('/api/engagements').then(r => r.data.data),
 
   get: (id: string) => api.get<Engagement>(`/api/engagements/${id}`).then(r => r.data),
 
@@ -144,11 +144,10 @@ export const engagementsApi = {
 
   message: (id: string, message: string) =>
     api.post<{
-      parsed: Record<string, unknown>
-      collateralDetected: string
-      allFieldsCollected: boolean
-      missingFields: string[]
-      dispatched: boolean
+      status: 'needs_info' | 'dispatched'
+      followUpQuestion?: string
+      missingFields?: string[]
+      jobIds?: string[]
     }>(`/api/engagements/${id}/message`, { message }).then(r => r.data),
 
   feedback: (id: string, feedback: string, targetSection?: string) =>

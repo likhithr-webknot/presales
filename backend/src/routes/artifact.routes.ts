@@ -50,8 +50,10 @@ artifactRouter.get('/download', async (req: Request, res: Response, next: NextFu
 
     if (!fileKey) {
       // Return presigned_url directly if already set
-      const url = output.presigned_url as string
+      let url = output.presigned_url as string
       if (url) {
+        // Fix docker internal hostname for local development
+        url = url.replace('http://minio:9000', 'http://localhost:9000')
         await _auditDownload(engagementId, req.user!.id, fileKey ?? 'unknown', format)
         res.json({ downloadUrl: url, format, cached: true })
         return

@@ -4,7 +4,7 @@ import {
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { s3Client } from '../../config/storage'
+import { s3Client, presignClient } from '../../config/storage'
 import { env } from '../../config/env'
 import { Readable } from 'stream'
 
@@ -36,7 +36,7 @@ export async function presignedUrl(
   ttlHours: number = env.STORAGE_PRESIGNED_URL_TTL_HOURS
 ): Promise<string> {
   const command = new GetObjectCommand({ Bucket: bucket, Key: key })
-  return getSignedUrl(s3Client, command, { expiresIn: ttlHours * 3600 })
+  return getSignedUrl(presignClient, command, { expiresIn: ttlHours * 3600 })
 }
 
 export async function deleteObject(bucket: string, key: string): Promise<void> {

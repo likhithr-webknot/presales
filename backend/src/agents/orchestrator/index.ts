@@ -155,10 +155,10 @@ function buildJobInput(
   context: ParsedIntake
 ): Record<string, unknown> {
   const base = {
-    engagementId,
-    clientName: context.clientName,
+    engagement_id: engagementId,
+    client_name: context.clientName,
     domain: context.domain,
-    opportunityContext: context.opportunityContext,
+    opportunity_context: context.opportunityContext,
   }
 
   if (agentName === AgentName.SECONDARY_RESEARCH) {

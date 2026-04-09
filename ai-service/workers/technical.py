@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Any, Optional
 
-import anthropic
+from openai import AsyncOpenAI
 
 from config import get_settings
 from schemas.proposal import FeatureItem, TechnicalInput, TechnicalSolutionOutput
@@ -61,7 +61,7 @@ async def run(payload: dict[str, Any], engagement_id: Optional[str]) -> dict[str
     )
 
     settings = get_settings()
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = AsyncOpenAI(api_key=settings.openai_api_key)
 
     research_text = ""
     if inp.research_brief:
@@ -89,14 +89,17 @@ async def run(payload: dict[str, Any], engagement_id: Optional[str]) -> dict[str
 
     logger.info("Technical agent: client=%s domain=%s", inp.client_name, inp.domain)
 
-    response = await client.messages.create(
+    response = await client.chat.completions.create(
         model=settings.llm_premium_model,
         max_tokens=2000,
-        system=TECHNICAL_SYSTEM,
-        messages=[{"role": "user", "content": user_prompt}],
+        messages=[
+            {"role": "system", "content": TECHNICAL_SYSTEM},
+            {"role": "user", "content": user_prompt}
+        ],
+        response_format={"type": "json_object"},
     )
 
-    raw = response.content[0].text if response.content else "{}"
+    raw = response.choices[0].message.content if response.choices else "{}"
     raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
 
     try:

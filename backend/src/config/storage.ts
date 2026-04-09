@@ -11,6 +11,17 @@ export const s3Client = new S3Client({
   forcePathStyle: true, // required for MinIO
 })
 
+// Client specifically for generating presigned URLs that will be accessed from the browser
+export const presignClient = new S3Client({
+  endpoint: env.STORAGE_ENDPOINT.replace('minio', 'localhost'),
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: env.STORAGE_ACCESS_KEY,
+    secretAccessKey: env.STORAGE_SECRET_KEY,
+  },
+  forcePathStyle: true,
+})
+
 export const BUCKETS = {
   uploads: env.STORAGE_BUCKET_UPLOADS,
   artifacts: env.STORAGE_BUCKET_ARTIFACTS,

@@ -9,7 +9,7 @@ import json
 import logging
 from typing import Any, Optional
 
-import anthropic
+from openai import AsyncOpenAI
 
 from config import get_settings
 
@@ -77,7 +77,7 @@ async def _generate_section(
     settings,
 ) -> str:
     """Generate one SOW section using Claude Sonnet."""
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = AsyncOpenAI(api_key=settings.openai_api_key)
 
     section_instruction = SECTION_PROMPTS.get(section_key, f"Write the {section_key} section.")
 
@@ -114,12 +114,15 @@ async def _check_and_revise(text: str, settings) -> tuple[str, bool]:
     if not any(word in text.lower() for word in BANNED_WORDS):
         return text, False
 
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    response = await client.messages.create(
+    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    response = await client.chat.completions.create(
         model=settings.llm_premium_model,
         max_tokens=800,
-        system=BANNED_CHECK_SYSTEM,
-        messages=[{"role": "user", "content": text}],
+        messages=[
+            {"role": "system", "content": BANNED_CHECK_SYSTEM},
+            {"role": "user", "content": text}
+        ],
+        response_format={"type": "json_object"},
     )
 
     revised = response.content[0].text if response.content else text
@@ -157,7 +160,7 @@ async def run(payload: dict[str, Any], engagement_id: Optional[str]) -> dict[str
         if am_feedback:
             # AM requested revision — regenerate with feedback
             prev_content = payload.get("previous_content", "")
-            client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+            client = AsyncOpenAI(api_key=settings.openai_api_key)
             response = await client.messages.create(
                 model=settings.llm_premium_model,
                 max_tokens=800,

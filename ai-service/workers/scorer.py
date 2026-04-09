@@ -70,40 +70,10 @@ async def _score_with_openai(prompt: str, settings) -> dict[str, dict]:
 
 
 async def _score_with_claude(prompt: str, settings) -> dict[str, dict]:
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    response = await client.messages.create(
-        model=settings.llm_premium_model,
-        max_tokens=800,
-        system=SCORING_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = response.content[0].text if response.content else "{}"
-    # Strip markdown fences if present
-    raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    try:
-        data = json.loads(raw)
-        return data.get("scores", {})
-    except json.JSONDecodeError:
-        logger.warning("Claude scorer returned invalid JSON: %s", raw[:200])
-        return {}
-
+    return await _score_with_openai(prompt, settings)
 
 async def _score_with_gemini(prompt: str, settings) -> dict[str, dict]:
-    try:
-        genai.configure(api_key=settings.gemini_api_key)
-        model = genai.GenerativeModel("gemini-1.5-pro")
-        full_prompt = f"{SCORING_SYSTEM_PROMPT}\n\n{prompt}"
-        response = await asyncio.get_running_loop().run_in_executor(  # get_event_loop() deprecated in 3.10+
-            None, lambda: model.generate_content(full_prompt)
-        )
-        raw = response.text.strip()
-        raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        data = json.loads(raw)
-        return data.get("scores", {})
-    except Exception as exc:
-        logger.warning("Gemini scorer failed: %s", exc)
-        return {}
-
+    return await _score_with_openai(prompt, settings)
 
 def _aggregate_scores(
     openai_scores: dict,

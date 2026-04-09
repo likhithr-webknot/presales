@@ -129,6 +129,20 @@ internalRouter.post('/job-update', async (req: Request, res: Response): Promise<
         console.error('[internal/job-update] Pipeline advance failed:', err)
       })
 
+      // If output contains a presigned_url — create a new version
+      if (output && typeof output === 'object' && 'presigned_url' in output) {
+        import('./version.routes').then(({ createNewVersion }) => {
+          // Use a real user ID or system user if available, fallback to engagement creator if needed
+          prisma.engagement.findUnique({ where: { id: engagementId } }).then(engagement => {
+            if (engagement) {
+              createNewVersion(engagementId, engagement.createdById, 'Initial generation', output).catch((err) => {
+                console.error('[internal/job-update] Version creation failed:', err)
+              })
+            }
+          })
+        }).catch(err => console.error('Failed to import version routes', err))
+      }
+
       // B-03 fix: write compliance matrix back to GateApproval records when scoring completes
       if (output && job.agentName === 'COMPLIANCE_SCORER') {
         const gateNumber = (job.input as any)?.gateNumber as string | undefined

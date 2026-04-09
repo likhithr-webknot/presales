@@ -16,8 +16,8 @@ class Settings(BaseSettings):
 
     # ── LLM API Keys ──────────────────────────────────────────────────────────
     openai_api_key: str
-    anthropic_api_key: str
-    gemini_api_key: str
+    anthropic_api_key: str = ""
+    gemini_api_key: str = ""
 
     # ── Service Communication ─────────────────────────────────────────────────
     # URL that ai-service uses to call back into the Node backend
@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     llm_mid_model: str = "gpt-4o"
 
     # Premium tier (narrative, SOW, technical architecture)
-    llm_premium_model: str = "claude-sonnet-4-6"
+    llm_premium_model: str = "gpt-4o"
 
     # ── Web Search
     tavily_api_key: str = ""

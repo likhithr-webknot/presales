@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Any, Optional
 
-import anthropic
+from openai import AsyncOpenAI
 
 from config import get_settings
 from schemas.proposal import (
@@ -63,7 +63,7 @@ Check for:
 
 
 async def _positioning_phase(inp: NarrativeInput, settings) -> NarrativePositioningOutput:
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = AsyncOpenAI(api_key=settings.openai_api_key)
 
     research_text = ""
     if inp.research_brief:
@@ -93,14 +93,17 @@ async def _positioning_phase(inp: NarrativeInput, settings) -> NarrativePosition
         f"AM instructions: {inp.am_instructions or 'None'}"
     )
 
-    response = await client.messages.create(
+    response = await client.chat.completions.create(
         model=settings.llm_premium_model,
         max_tokens=1500,
-        system=POSITIONING_SYSTEM,
-        messages=[{"role": "user", "content": user_prompt}],
+        messages=[
+            {"role": "system", "content": POSITIONING_SYSTEM},
+            {"role": "user", "content": user_prompt}
+        ],
+        response_format={"type": "json_object"},
     )
 
-    raw = response.content[0].text if response.content else "{}"
+    raw = response.choices[0].message.content if response.choices else "{}"
     raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
 
     try:
@@ -130,7 +133,7 @@ async def _positioning_phase(inp: NarrativeInput, settings) -> NarrativePosition
 
 
 async def _coherence_phase(inp: NarrativeInput, settings) -> dict:
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = AsyncOpenAI(api_key=settings.openai_api_key)
 
     narrative_str = json.dumps(inp.prior_narrative.model_dump() if inp.prior_narrative else {}, indent=2)[:1500]
     technical_str = json.dumps(inp.technical_solution or {}, indent=2)[:1500]
@@ -142,14 +145,17 @@ async def _coherence_phase(inp: NarrativeInput, settings) -> dict:
         "Check for coherence, consistency, and story arc quality."
     )
 
-    response = await client.messages.create(
+    response = await client.chat.completions.create(
         model=settings.llm_premium_model,
         max_tokens=800,
-        system=COHERENCE_SYSTEM,
-        messages=[{"role": "user", "content": user_prompt}],
+        messages=[
+            {"role": "system", "content": COHERENCE_SYSTEM},
+            {"role": "user", "content": user_prompt}
+        ],
+        response_format={"type": "json_object"},
     )
 
-    raw = response.content[0].text if response.content else "{}"
+    raw = response.choices[0].message.content if response.choices else "{}"
     raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
 
     try:

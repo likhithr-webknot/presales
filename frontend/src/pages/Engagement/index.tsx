@@ -39,11 +39,12 @@ export default function EngagementPage() {
   const messageMutation = useMutation({
     mutationFn: (msg: string) => engagementsApi.message(id!, msg),
     onSuccess: (result) => {
-      const systemMsg = result.allFieldsCollected
-        ? result.dispatched
-          ? '✅ All details collected. Agents are running — watch the pipeline panel.'
-          : '✅ All details collected.'
-        : `I still need: ${result.missingFields.join(', ')}. Please provide those details.`
+      let systemMsg = ''
+      if (result.status === 'dispatched') {
+        systemMsg = '✅ All details collected. Agents are running — watch the pipeline panel.'
+      } else {
+        systemMsg = result.followUpQuestion || `I still need: ${result.missingFields?.join(', ')}. Please provide those details.`
+      }
       setMessages(prev => [...prev, { role: 'system', text: systemMsg, timestamp: new Date() }])
       queryClient.invalidateQueries({ queryKey: ['engagement-status', id] })
     },

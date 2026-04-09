@@ -193,67 +193,6 @@ engagementRouter.post('/:id/advance-stage', requireEngagementAccess, async (req:
   } catch (err) { next(err) }
 })
 
-// ─── Engagement status ────────────────────────────────────────────────────────
-
-engagementRouter.get('/:id/status', requireEngagementAccess, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const engagement = await prisma.engagement.findUniqueOrThrow({
-      where: { id: req.params.id },
-      include: {
-        agentJobs: { where: { status: { in: ['QUEUED', 'RUNNING'] } } },
-        gateApprovals: { where: { status: 'PENDING' } },
-      },
-    })
-
-    res.json({
-      stage:          engagement.stage,
-      status:         engagement.status,
-      currentBlocker: engagement.currentBlocker,
-      activeJobs:     engagement.agentJobs,
-      pendingGates:   engagement.gateApprovals.length,
-      lastActivity:   engagement.updatedAt,
-    })
-  } catch (err) { next(err) }
-})
-
-// ─── Version history ──────────────────────────────────────────────────────────
-
-engagementRouter.get('/:id/versions', requireEngagementAccess, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const versions = await prisma.engagementVersion.findMany({
-      where: { engagementId: req.params.id },
-      orderBy: { version: 'desc' },
-      select: { id: true, version: true, changeReason: true, diffSummary: true, isLatest: true, createdAt: true, triggeredByUserId: true },
-    })
-    res.json(versions)
-  } catch (err) { next(err) }
-})
-
-engagementRouter.get('/:id/versions/:version', requireEngagementAccess, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const version = await prisma.engagementVersion.findFirstOrThrow({
-      where: { engagementId: req.params.id, version: parseInt(req.params.version) },
-    })
-    res.json(version)
-  } catch (err) { next(err) }
-})
-
-// ─── Audit log ────────────────────────────────────────────────────────────────
-
-engagementRouter.get('/:id/audit', requireEngagementAccess, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const page  = Math.max(1, parseInt(req.query.page as string) || 1)
-    const limit = Math.min(100, parseInt(req.query.limit as string) || 50)
-    const logs  = await prisma.auditLog.findMany({
-      where: { engagementId: req.params.id },
-      orderBy: { createdAt: 'desc' },
-      skip: (page - 1) * limit,
-      take: limit,
-      include: { user: { select: { name: true, email: true } } },
-    })
-    res.json(logs)
-  } catch (err) { next(err) }
-})
 
 // ─── Feedback ─────────────────────────────────────────────────────────────────
 
