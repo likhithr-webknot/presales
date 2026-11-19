@@ -91,6 +91,7 @@ model Engagement {
   reviewers          EngagementReviewer[]
   uploads            EngagementUpload[]
   auditLogs          AuditLog[]
+  feedbackEvents     FeedbackEvent[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 }
@@ -281,4 +282,49 @@ model AuditLog {
   action       AuditAction
   detail       Json?
   createdAt    DateTime    @default(now())
+}
+
+// ─── Learning loop ────────────────────────────────────────────────────────────
+// The AI does not retrain on conversations. Mistakes are captured here, distilled into
+// behaviour-only lessons, and a human approves each lesson before it can reach a prompt.
+
+enum FeedbackType {
+  HUMAN_EDIT
+  VERIFIER_REJECTION
+  USER_COMMENT
+}
+
+model FeedbackEvent {
+  id             String         @id @default(uuid())
+  engagementId   String
+  engagement     Engagement     @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  userId         String?
+  type           FeedbackType
+  collateralType CollateralType
+  payload        Json
+  processed      Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+
+  @@index([processed, createdAt])
+}
+
+enum LessonStatus {
+  CANDIDATE
+  APPROVED
+  REJECTED
+}
+
+model Lesson {
+  id              String           @id @default(uuid())
+  text            String
+  category        String
+  collateralTypes CollateralType[]
+  status          LessonStatus     @default(CANDIDATE)
+  sourceEventIds  String[]
+  createdById     String?
+  reviewedById    String?
+  reviewedAt      DateTime?
+  createdAt       DateTime         @default(now())
+
+  @@index([status])
 }

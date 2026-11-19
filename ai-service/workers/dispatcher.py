@@ -85,7 +85,19 @@ async def _run_worker(
     # from workers.context_manager import run as context_run
     # etc.
 
+    from workers.collateral_generator import run as collateral_run
+    from workers.pricing_workbook import run as pricing_run
+    from workers.context_manager import run as context_run
+    from workers.research import run as research_run
+    from workers.packaging import run as packaging_run
+
     worker_map = {
+        "research": research_run,     # public web evidence
+        "context": context_run,       # normalise uploads + approved KB
+        "packaging": packaging_run,   # final grounded deck / document
+        "narrative": collateral_run,  # decks and marketing content
+        "sow": collateral_run,        # proposals / SOW documents
+        "pricing": pricing_run,       # deterministic workbook, no LLM
         # "research": research_run,   # Sprint 2
         # "context":  context_run,    # Sprint 2
         # All others are stubs until their sprint

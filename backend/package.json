@@ -9,7 +9,8 @@
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:seed": "ts-node prisma/seed.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node -r ts-node/register/transpile-only --test src/agents/orchestrator/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.24.0",

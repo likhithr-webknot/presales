@@ -9,6 +9,9 @@ import { healthRouter } from './routes/health.routes'
 import { engagementRouter } from './routes/engagement.routes'
 import { uploadRouter } from './routes/upload.routes'
 import { jobRouter } from './routes/job.routes'
+import { internalRouter } from './routes/internal.routes'
+import { artifactRouter } from './routes/artifact.routes'
+import { learningRouter } from './routes/learning.routes'
 import { errorMiddleware } from './middleware/error.middleware'
 
 export function createApp() {
@@ -31,7 +34,10 @@ export function createApp() {
   // Routes
   app.use('/auth', authRouter)
   app.use('/health', healthRouter)
+  app.use('/api/engagements/:id/artifacts', artifactRouter)
   app.use('/api/engagements', engagementRouter)
+  app.use('/api/internal', internalRouter)
+  app.use('/api/learning', learningRouter)
   app.use('/api/uploads', uploadRouter)
   app.use('/api/jobs', jobRouter)
 

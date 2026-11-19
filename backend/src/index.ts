@@ -3,7 +3,7 @@ import { createServer } from 'http'
 import { createApp } from './app'
 import { initBuckets } from './config/storage'
 import { initWebSocket } from './services/websocket/server'
-import { registerAllStubWorkers } from './jobs/workers/stub-worker.factory'
+import { registerAiWorkers, startStaleJobReaper } from './jobs/workers/ai-worker.factory'
 import { initAdapters } from './adapters/factory'
 import { env } from './config/env'
 
@@ -21,8 +21,9 @@ async function main() {
   // WebSocket on same server
   initWebSocket(httpServer)
 
-  // Register BullMQ stub workers (replaced by real workers in later sprints)
-  registerAllStubWorkers()
+  // BullMQ workers hand jobs to the ai-service; results return via /api/internal/job-update
+  registerAiWorkers()
+  startStaleJobReaper()
 
   httpServer.listen(env.PORT, () => {
     console.log(`\n✅ Server running on http://localhost:${env.PORT}`)

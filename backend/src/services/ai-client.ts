@@ -138,3 +138,47 @@ export async function dispatchJob(
     payload,
   }, 10_000) // short timeout — this is just an enqueue, not the full job
 }
+
+/** Render a canonical document to an Office file via the ai-service. */
+export async function renderDocument(fmt: 'pptx' | 'docx' | 'xlsx', document: unknown): Promise<Buffer> {
+  const path = `/documents/render/${fmt}`
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 60_000)
+  try {
+    const res = await fetch(`${env.AI_SERVICE_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-ai-internal-secret': env.AI_INTERNAL_SECRET },
+      body: JSON.stringify(document),
+      signal: controller.signal,
+    })
+    if (!res.ok) throw new AIServiceError(path, res.status, await res.text().catch(() => ''))
+    return Buffer.from(await res.arrayBuffer())
+  } catch (err) {
+    if (err instanceof AIServiceError) throw err
+    throw new AIServiceUnavailableError(path, err)
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// ── Learning loop ─────────────────────────────────────────────────────────────
+
+export interface LessonCandidate { text: string; category: string; source_event_ids: string[] }
+export interface ProposeLessonsResponse { candidates: LessonCandidate[]; dropped: { text: string; reasons: string[] }[] }
+export interface LintResponse { ok: boolean; reasons: string[] }
+
+export async function proposeLessons(
+  events: { id: string; type: string; collateral_type: string; payload: unknown }[],
+  existingLessons: string[],
+  forbiddenTerms: string[]
+): Promise<ProposeLessonsResponse> {
+  return callAIService<ProposeLessonsResponse>(
+    '/learning/propose',
+    { events, existing_lessons: existingLessons, forbidden_terms: forbiddenTerms },
+    90_000
+  )
+}
+
+export async function lintLesson(text: string, category: string, forbiddenTerms: string[]): Promise<LintResponse> {
+  return callAIService<LintResponse>('/learning/lint', { text, category, forbidden_terms: forbiddenTerms })
+}

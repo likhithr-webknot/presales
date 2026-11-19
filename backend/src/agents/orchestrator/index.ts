@@ -1,11 +1,10 @@
-import { AgentName, AuditAction, CollateralType, EngagementStage, JobStatus, Prisma } from '@prisma/client'
+import { AuditAction, CollateralType, EngagementStage, Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
-import { queues } from '../../jobs/queues'
-import { wsEvents } from '../../services/websocket/events'
 import { writeAuditLog } from '../../services/audit/logger'
 import { parseIntake, ParsedIntake } from './intake-parser'
 import { detectCollateralType } from './collateral-detector'
-import { getPipeline, RESEARCH_DEPTH_BY_STAGE } from './routing'
+import { getPipeline } from './routing'
+import { dispatchStep, newRunId } from './pipeline'
 
 export interface OrchestratorMessageResult {
   status: 'needs_info' | 'dispatched'
@@ -95,93 +94,13 @@ async function dispatchAgents(
   userId: string,
   context: ParsedIntake
 ): Promise<string[]> {
-  const pipeline = getPipeline(collateralType)
-  if (pipeline.length === 0) return []
-
-  // Dispatch only the first step — subsequent steps triggered by job completion handlers
-  const firstStep = pipeline[0]
-  const jobIds: string[] = []
-
-  for (const agentName of firstStep.agents) {
-    const jobInput = buildJobInput(agentName, engagementId, stage, context)
-
-    // Create DB record
-    const dbJob = await prisma.agentJob.create({
-      data: {
-        engagementId,
-        agentName,
-        status: JobStatus.QUEUED,
-        input: jobInput as Prisma.InputJsonValue,
-      },
-    })
-
-    // Enqueue to BullMQ
-    const queue = agentToQueue(agentName)
-    if (queue) {
-      const bullJob = await queue.add(agentName, { ...jobInput, jobId: dbJob.id })
-
-      // Update with BullMQ job ID
-      await prisma.agentJob.update({
-        where: { id: dbJob.id },
-        data: { bullmqJobId: bullJob.id ?? null },
-      })
-
-      // Emit WebSocket event
-      wsEvents.jobStarted(engagementId, {
-        agentName,
-        jobId: bullJob.id ?? dbJob.id,
-        jobDbId: dbJob.id,
-      })
-    }
-
-    jobIds.push(dbJob.id)
-
-    await writeAuditLog({
-      engagementId,
-      userId,
-      action: AuditAction.AGENT_INVOKED,
-      detail: { agentName, jobDbId: dbJob.id },
-    })
-  }
-
-  return jobIds
-}
-
-function buildJobInput(
-  agentName: AgentName,
-  engagementId: string,
-  stage: EngagementStage,
-  context: ParsedIntake
-): Record<string, unknown> {
-  const base = {
-    engagementId,
-    clientName: context.clientName,
-    domain: context.domain,
-    opportunityContext: context.opportunityContext,
-  }
-
-  if (agentName === AgentName.SECONDARY_RESEARCH) {
-    return { ...base, depth: RESEARCH_DEPTH_BY_STAGE[stage] }
-  }
-
-  return base
-}
-
-function agentToQueue(agentName: AgentName) {
-  const map: Partial<Record<AgentName, keyof typeof queues>> = {
-    [AgentName.SECONDARY_RESEARCH]: 'research',
-    [AgentName.CONTEXT_MANAGER]:    'context',
-    [AgentName.CASE_STUDY_MAKER]:   'casestudy',
-    [AgentName.SOW_MAKER]:          'sow',
-    [AgentName.NARRATIVE_AGENT]:    'narrative',
-    [AgentName.TECHNICAL_SOLUTION]: 'technical',
-    [AgentName.PACKAGING_AGENT]:    'packaging',
-    [AgentName.PRICING_ADAPTER]:    'pricing',
-    [AgentName.COMPLIANCE_SCORER]:  'scoring',
-    [AgentName.MEETMINDS_ADAPTER]:  'research', // MeetMinds uses research queue slot
-  }
-  const queueName = map[agentName]
-  return queueName ? queues[queueName] : null
+  if (getPipeline(collateralType).length === 0) return []
+  // Only step 0 here; applyJobUpdate() dispatches each later step when the previous one settles.
+  return dispatchStep(
+    engagementId, collateralType, stage, userId,
+    { clientName: context.clientName, domain: context.domain, opportunityContext: context.opportunityContext },
+    0, newRunId()
+  )
 }
 
 function stageToNumber(stage: EngagementStage): number {

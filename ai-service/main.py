@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import get_settings
-from routers import collateral, intake, jobs
+from routers import collateral, documents, intake, jobs, learning
 
 logging.basicConfig(
     level=logging.INFO,
@@ -70,6 +70,8 @@ def create_app() -> FastAPI:
     app.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
     app.include_router(intake.router, prefix="/intake", tags=["intake"])
     app.include_router(collateral.router, prefix="/collateral", tags=["collateral"])
+    app.include_router(documents.router, prefix="/documents", tags=["documents"])
+    app.include_router(learning.router, prefix="/learning", tags=["learning"])
 
     # ── Health ────────────────────────────────────────────────────────────────
     @app.get("/health")

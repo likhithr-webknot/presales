@@ -11,7 +11,8 @@ export function errorMiddleware(
   res: Response,
   _next: NextFunction
 ): void {
-  const statusCode = err.statusCode ?? 500
+  // Request validation failures are the caller's fault, not a server error
+  const statusCode = err.statusCode ?? (err.name === 'ZodError' ? 400 : 500)
   const message = err.message || 'Internal server error'
 
   // Never expose stack traces to clients
